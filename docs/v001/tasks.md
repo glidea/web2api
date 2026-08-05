@@ -225,11 +225,11 @@
 - 强制安装系统后台服务
 
 ## TODO 清单
-- [ ] 1. 验证 npm pack 后的 `npx web2api start`
-- [ ] 2. 生成 WXT Chrome zip 并校验 manifest 权限
-- [ ] 3. 完成 popup 连接、登录、worker 和模型诊断
-- [ ] 4. 建立一条发布前真实 ChatGPT smoke test 命令
-- [ ] 5. 记录后台服务与 Node SEA 的后续决策，不实现未验证方案
+- [x] 1. 验证 npm pack 后的 `npx web2api start`
+- [x] 2. 生成 WXT Chrome zip 并校验 manifest 权限
+- [x] 3. 完成 popup 连接、登录、worker 和模型诊断
+- [x] 4. 建立一条发布前真实 ChatGPT smoke test 命令
+- [x] 5. 记录后台服务与 Node SEA 的后续决策，不实现未验证方案
 
 ## 验收测试步骤
 1. 在无源码目录安装本地 npm tarball 并启动 daemon

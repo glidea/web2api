@@ -1,8 +1,18 @@
 {
   "name": "web2api",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "bin": {
+    "web2api": "./bin/web2api.mjs"
+  },
+  "files": [
+    "bin",
+    "src/daemon",
+    "src/shared"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "prepare:extension": "wxt prepare src/extension",
     "build:extension": "wxt build src/extension --mv3",
@@ -10,8 +20,13 @@
     "test:e2e:extension-daemon": "pnpm build:extension && WEB2API_EXTENSION_DAEMON_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-daemon.spec.ts",
     "test:e2e:extension-responses": "pnpm build:extension && WEB2API_EXTENSION_RESPONSES_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-responses.spec.ts",
     "test:smoke:chatgpt": "playwright test --config playwright.config.ts tests/e2e/chatgpt-smoke.spec.ts",
+    "pack:extension": "pnpm build:extension && mkdir -p dist && rm -f dist/web2api-extension.zip && cd src/extension/.output && zip -qr ../../../dist/web2api-extension.zip chrome-mv3",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "tsx": "^4.20.5",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
