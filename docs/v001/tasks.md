@@ -59,10 +59,10 @@
 - 系统后台服务安装
 
 ## TODO 清单
-- [ ] 1. 先写 CLI 启动与 HTTP E2E 测试
-- [ ] 2. 实现配置文件、固定端口和 API key 生成
-- [ ] 3. 实现 `GET /healthz` 与 Bearer 认证中间逻辑
-- [ ] 4. 输出 base URL、API key 和扩展连接状态
+- [x] 1. 先写 CLI 启动与 HTTP E2E 测试
+- [x] 2. 实现配置文件、固定端口和 API key 生成
+- [x] 3. 实现 `GET /healthz` 与 Bearer 认证中间逻辑
+- [x] 4. 输出 base URL、API key 和扩展连接状态
 
 ## 验收测试步骤
 1. 在空配置目录运行 `pnpm web2api start`
