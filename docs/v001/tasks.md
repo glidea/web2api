@@ -34,11 +34,11 @@
 - OpenAI Responses 格式转换
 
 ## TODO 清单
-- [ ] 1. 测试并实现后台 tab 的 DOM 增量读取与完成检测
-- [ ] 2. 测试并实现 conversation ID 识别
-- [ ] 3. 测试并实现 `File` + `DataTransfer` 图片上传
-- [ ] 4. 测试并实现模型与 reasoning effort 扫描和切换
-- [ ] 5. 测试并实现最终生成图片字节提取
+- [x] 1. 测试并实现后台 tab 的 DOM 增量读取与完成检测
+- [x] 2. 测试并实现 conversation ID 识别
+- [x] 3. 测试并实现 `File` + `DataTransfer` 图片上传
+- [x] 4. 测试并实现模型与 reasoning effort 扫描和切换
+- [x] 5. 测试并实现最终生成图片字节提取
 - [ ] 6. 记录真实网页 smoke test 结果和失败证据
 
 ## 验收测试步骤
