@@ -46,6 +46,8 @@
 2. 在专用 Chromium profile 登录 ChatGPT 后运行 `pnpm test:smoke:chatgpt`
 3. 确认五项能力全部通过；任一失败时任务不得标记完成
 
+真实 smoke 当前未标记完成：本机没有可用的专用登录 Chromium profile，`tests/e2e/chatgpt-smoke.spec.ts` 在未设置 `WEB2API_CHATGPT_PROFILE` 时跳过，避免读取日常 Chrome 凭据。
+
 ---
 
 # Task-003: 实现 Node.js daemon CLI 与健康检查
