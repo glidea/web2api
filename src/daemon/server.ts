@@ -20,6 +20,7 @@ export class DaemonServer {
   private readonly status: DaemonStatus;
   private readonly httpServer: Server;
   private responsesHandler: ResponsesHandler | undefined;
+  private modelsProvider: (() => ModelList) | undefined;
 
   public constructor(config: DaemonConfig, status: DaemonStatus) {
     this.config = config;
@@ -65,6 +66,10 @@ export class DaemonServer {
     this.responsesHandler = handler;
   }
 
+  public setModelsProvider(provider: () => ModelList): void {
+    this.modelsProvider = provider;
+  }
+
   private handleRequest(request: IncomingMessage, response: ServerResponse): void {
     const method: string = request.method ?? "GET";
     const path: string = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -82,10 +87,7 @@ export class DaemonServer {
         this.sendError(response, 401, "invalid_api_key", "Invalid API key");
         return;
       }
-      const models: ModelList = {
-        object: "list",
-        data: [{ id: "chatgpt/default", object: "model", owned_by: "web2api" }]
-      };
+      const models: ModelList = this.modelsProvider === undefined ? { object: "list", data: [{ id: "chatgpt/default", object: "model", owned_by: "web2api" }] } : this.modelsProvider();
       this.sendJson(response, 200, models);
       return;
     }

@@ -178,10 +178,10 @@
 - 图片能力
 
 ## TODO 清单
-- [ ] 1. 先写 capability 更新和严格映射测试
-- [ ] 2. 实现模型与 effort DOM 扫描
-- [ ] 3. 实现 `capabilities.updated` 与动态 `/v1/models`
-- [ ] 4. 实现提交前模型和 effort 切换
+- [x] 1. 先写 capability 更新和严格映射测试
+- [x] 2. 实现模型与 effort DOM 扫描
+- [x] 3. 实现 `capabilities.updated` 与动态 `/v1/models`
+- [x] 4. 实现提交前模型和 effort 切换
 
 ## 验收测试步骤
 1. `GET /v1/models` 返回 `chatgpt/default` 和页面可见模型

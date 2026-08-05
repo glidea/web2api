@@ -46,6 +46,7 @@ export type JobStartMessage = {
     model: string;
     input: string;
     conversation_id?: string;
+    reasoning_effort?: string;
   };
 };
 

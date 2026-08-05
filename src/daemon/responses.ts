@@ -8,6 +8,7 @@ type ResponsesRequest = {
   input: string;
   stream: boolean;
   conversationId: string | undefined;
+  reasoningEffort: string | undefined;
 };
 
 type StreamResponseState = {
@@ -44,7 +45,7 @@ export class ResponsesService {
         await this.handleStream(request, response, body);
         return;
       }
-      const result: TextJobResult = await this.gateway.executeTextJob(body.model, body.input, body.conversationId);
+      const result: TextJobResult = await this.gateway.executeTextJob(body.model, body.input, body.conversationId, body.reasoningEffort);
       const responseBody: ResponsesBody = {
         id: encodeResponseId(result.conversationId, randomUUID()),
         object: "response",
@@ -77,8 +78,8 @@ export class ResponsesService {
       throw new RequestError(400, "invalid_request", "Request body must be an object");
     }
     const record: Record<string, unknown> = value as Record<string, unknown>;
-    if (record["model"] !== "chatgpt/default") {
-      throw new RequestError(400, "model_not_available", "Only chatgpt/default is available");
+    if (typeof record["model"] !== "string" || !this.gateway.supportsModel(record["model"])) {
+      throw new RequestError(400, "model_not_available", "Requested model is not available");
     }
     if (typeof record["input"] !== "string") {
       throw new RequestError(400, "unsupported_parameter", "Only string input is supported");
@@ -94,7 +95,21 @@ export class ResponsesService {
         throw new RequestError(400, "invalid_request", "Invalid previous_response_id");
       }
     }
-    return { model: "chatgpt/default", input: record["input"], stream: record["stream"] === true, conversationId };
+    let reasoningEffort: string | undefined;
+    if (record["reasoning"] !== undefined) {
+      if (typeof record["reasoning"] !== "object" || record["reasoning"] === null) {
+        throw new RequestError(400, "invalid_request", "reasoning must be an object");
+      }
+      const reasoning: Record<string, unknown> = record["reasoning"] as Record<string, unknown>;
+      if (reasoning["effort"] !== undefined && typeof reasoning["effort"] !== "string") {
+        throw new RequestError(400, "invalid_request", "reasoning.effort must be a string");
+      }
+      reasoningEffort = reasoning["effort"] as string | undefined;
+      if (reasoningEffort !== undefined && !this.gateway.supportsReasoningEffort(reasoningEffort)) {
+        throw new RequestError(400, "reasoning_effort_not_available", "Requested reasoning effort is not available");
+      }
+    }
+    return { model: record["model"], input: record["input"], stream: record["stream"] === true, conversationId, reasoningEffort };
   }
 
   private async handleStream(request: IncomingMessage, response: ServerResponse, body: ResponsesRequest): Promise<void> {
@@ -115,7 +130,7 @@ export class ResponsesService {
             this.writeEvent(response, "response.output_text.delta", { type: "response.output_text.delta", response_id: state.responseId, item_id: state.outputItemId, delta });
           }
         }
-      }, body.conversationId);
+      }, body.conversationId, body.reasoningEffort);
     } catch (error: unknown) {
       this.sendServiceError(response, error);
       return;

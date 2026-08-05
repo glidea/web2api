@@ -57,7 +57,7 @@ async function connectFakeExtension(): Promise<void> {
     version: 1,
     type: "worker.ready",
     worker_id: "worker-1",
-    capabilities: { models: ["chatgpt/default"], reasoning_efforts: [] }
+    capabilities: { models: ["chatgpt/default", "chatgpt/gpt-4o"], reasoning_efforts: ["low", "high"] }
   };
   socket.send(JSON.stringify(ready));
 }
@@ -113,6 +113,26 @@ describe("non-streaming responses", (): void => {
     expect(body.output[0]?.content[0]?.text).toBe("hello");
   });
 
+  it("exposes worker models and forwards reasoning effort", async (): Promise<void> => {
+    const modelsResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const models: { data: Array<{ id: string }> } = await modelsResponse.json() as { data: Array<{ id: string }> };
+    expect(models.data.map((model: { id: string }): string => model.id)).toEqual(["chatgpt/default", "chatgpt/gpt-4o"]);
+    const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/gpt-4o", input: "think", reasoning: { effort: "high" } })
+    });
+    const job: DaemonToExtensionMessage = await readDaemonMessage();
+    if (job.type !== "job.start") {
+      throw new Error(`expected job.start, got ${job.type}`);
+    }
+    expect(job.payload).toMatchObject({ model: "chatgpt/gpt-4o", reasoning_effort: "high" });
+    socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: job.request_id, worker_id: job.worker_id, conversation_id: "conv-model" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 1, delta: "ok" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: job.request_id, worker_id: job.worker_id } satisfies ExtensionToDaemonMessage));
+    expect((await responsePromise).status).toBe(200);
+  });
+
   it("rejects an unsupported model before sending a page job", async (): Promise<void> => {
     const response: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
       method: "POST",
@@ -121,6 +141,16 @@ describe("non-streaming responses", (): void => {
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: "model_not_available" } });
+  });
+
+  it("rejects an unsupported reasoning effort before sending a page job", async (): Promise<void> => {
+    const response: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "hello", reasoning: { effort: "max" } })
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "reasoning_effort_not_available" } });
   });
 
   it("routes previous_response_id to the original conversation", async (): Promise<void> => {

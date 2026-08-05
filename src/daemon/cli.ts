@@ -1,5 +1,5 @@
 import { loadOrCreateConfig, defaultConfigPath, type ConfigOverrides, type DaemonConfig } from "./config";
-import { DaemonServer, type DaemonStatus } from "./server";
+import { DaemonServer, type DaemonStatus, type ModelList } from "./server";
 import { ExtensionGateway } from "./extension-gateway";
 import { ResponsesService } from "./responses";
 
@@ -19,6 +19,7 @@ async function main(): Promise<void> {
   const server: DaemonServer = new DaemonServer(config, status);
   const gateway: ExtensionGateway = new ExtensionGateway(server, config, status);
   const responses: ResponsesService = new ResponsesService(gateway);
+  server.setModelsProvider((): ModelList => ({ object: "list", data: gateway.models().map((id: string): ModelList["data"][number] => ({ id, object: "model", owned_by: "web2api" })) }));
   server.setResponsesHandler((request, response): void => {
     void responses.handle(request, response);
   });

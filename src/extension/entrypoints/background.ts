@@ -1,10 +1,11 @@
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
-import type { ExtensionHelloMessage, HeartbeatMessage, WorkerReadyMessage, WorkerUnhealthyMessage, DaemonToExtensionMessage, ExtensionToDaemonMessage, JobStartMessage } from "../../shared/protocol";
+import type { Capabilities, ExtensionHelloMessage, HeartbeatMessage, WorkerReadyMessage, WorkerUnhealthyMessage, DaemonToExtensionMessage, ExtensionToDaemonMessage, JobStartMessage } from "../../shared/protocol";
 
 type ContentReadyMessage = {
   type: "web2api:content-ready";
   url: string;
+  capabilities?: Capabilities;
 };
 
 type PopupStatusMessage = {
@@ -22,6 +23,7 @@ let daemonConnected: boolean = false;
 let workerReady: boolean = false;
 const workerTabs: Map<string, number> = new Map<string, number>();
 const readyWorkers: Set<string> = new Set<string>();
+const workerCapabilities: Map<string, Capabilities> = new Map<string, Capabilities>();
 let configuredMaxTabs: number = 0;
 let websocket: WebSocket | undefined;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -33,6 +35,7 @@ export default defineBackground((): void => {
       if (workerTabId === tabId) {
         workerTabs.delete(workerId);
         readyWorkers.delete(workerId);
+        workerCapabilities.delete(workerId);
         sendWorkerUnhealthy(workerId, "worker_tab_closed");
       }
     }
@@ -50,6 +53,9 @@ export default defineBackground((): void => {
       contentScriptReady = true;
       const workerId: string | undefined = findWorkerId(sender.tab?.id);
       if (workerId !== undefined) {
+        if (message.capabilities !== undefined) {
+          workerCapabilities.set(workerId, message.capabilities);
+        }
         readyWorkers.add(workerId);
         workerReady = true;
         sendWorkerReady(workerId);
@@ -145,7 +151,7 @@ function sendWorkerReady(workerId: string): void {
     version: 1,
     type: "worker.ready",
     worker_id: workerId,
-    capabilities: { models: ["chatgpt/default"], reasoning_efforts: [] }
+    capabilities: workerCapabilities.get(workerId) ?? { models: ["chatgpt/default"], reasoning_efforts: [] }
   };
   sendToDaemon(message);
 }
