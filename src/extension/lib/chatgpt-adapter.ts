@@ -12,7 +12,7 @@ export type ChatGPTCapabilities = {
 export function parseConversationId(url: string): string | undefined {
   const parsedUrl: URL = new URL(url);
   const match: RegExpMatchArray | null = parsedUrl.pathname.match(/^\/c\/([^/]+)$/);
-  return match?.[1];
+  return match?.[1] === undefined ? undefined : decodeURIComponent(match[1]);
 }
 
 export class AssistantTextReader {

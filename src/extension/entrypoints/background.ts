@@ -20,21 +20,26 @@ type PopupStatus = {
 let contentScriptReady: boolean = false;
 let daemonConnected: boolean = false;
 let workerReady: boolean = false;
-let workerTabId: number | undefined;
+const workerTabs: Map<string, number> = new Map<string, number>();
+const readyWorkers: Set<string> = new Set<string>();
+let configuredMaxTabs: number = 0;
 let websocket: WebSocket | undefined;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-const workerId: string = "worker-1";
-
 export default defineBackground((): void => {
   void connectToDaemon();
   browser.tabs.onRemoved.addListener((tabId: number): void => {
-    if (tabId !== workerTabId) {
-      return;
+    for (const [workerId, workerTabId] of workerTabs.entries()) {
+      if (workerTabId === tabId) {
+        workerTabs.delete(workerId);
+        readyWorkers.delete(workerId);
+        sendWorkerUnhealthy(workerId, "worker_tab_closed");
+      }
     }
-    workerTabId = undefined;
-    workerReady = false;
-    sendWorkerUnhealthy("worker_tab_closed");
+    workerReady = readyWorkers.size > 0;
+    if (configuredMaxTabs > 0) {
+      void ensureWorkerTabs(configuredMaxTabs);
+    }
   });
   browser.runtime.onMessage.addListener((message: unknown, sender): Promise<PopupStatus | undefined> => {
     if (isJobEvent(message)) {
@@ -43,9 +48,11 @@ export default defineBackground((): void => {
     }
     if (isContentReadyMessage(message)) {
       contentScriptReady = true;
-      if (sender.tab?.id === workerTabId) {
+      const workerId: string | undefined = findWorkerId(sender.tab?.id);
+      if (workerId !== undefined) {
+        readyWorkers.add(workerId);
         workerReady = true;
-        sendWorkerReady();
+        sendWorkerReady(workerId);
       }
       return Promise.resolve(undefined);
     }
@@ -68,6 +75,9 @@ async function connectToDaemon(): Promise<void> {
     daemonConnected = true;
     const hello: ExtensionHelloMessage = { version: 1, type: "extension.hello", extension_version: "0.1.0", chrome_version: navigator.userAgent };
     socket.send(JSON.stringify(hello));
+    for (const workerId of readyWorkers) {
+      sendWorkerReady(workerId);
+    }
     heartbeatTimer = setInterval((): void => {
       const heartbeat: HeartbeatMessage = { version: 1, type: "heartbeat", timestamp: Date.now() };
       socket.send(JSON.stringify(heartbeat));
@@ -76,20 +86,27 @@ async function connectToDaemon(): Promise<void> {
   socket.addEventListener("message", (event: MessageEvent<string>): void => {
     const message: DaemonToExtensionMessage = JSON.parse(event.data) as DaemonToExtensionMessage;
     if (message.type === "extension.configure") {
-      void ensureWorkerTab();
+      configuredMaxTabs = message.max_tabs;
+      void ensureWorkerTabs(message.max_tabs);
       return;
     }
-    if (message.type === "job.start" && workerTabId !== undefined) {
-      void browser.tabs.sendMessage(workerTabId, message);
+    if (message.type === "job.start") {
+      const workerTabId: number | undefined = workerTabs.get(message.worker_id);
+      if (workerTabId !== undefined) {
+        void browser.tabs.sendMessage(workerTabId, message);
+      }
       return;
     }
-    if (message.type === "job.cancel" && workerTabId !== undefined) {
-      void browser.tabs.sendMessage(workerTabId, message);
+    if (message.type === "job.cancel") {
+      const workerTabId: number | undefined = workerTabs.get(message.worker_id);
+      if (workerTabId !== undefined) {
+        void browser.tabs.sendMessage(workerTabId, message);
+      }
     }
   });
   socket.addEventListener("close", (): void => {
     daemonConnected = false;
-    workerReady = false;
+    workerReady = readyWorkers.size > 0;
     websocket = undefined;
     if (heartbeatTimer !== undefined) {
       clearInterval(heartbeatTimer);
@@ -105,22 +122,25 @@ async function connectToDaemon(): Promise<void> {
   });
 }
 
-async function ensureWorkerTab(): Promise<void> {
-  if (workerTabId !== undefined) {
-    return;
+async function ensureWorkerTabs(maxTabs: number): Promise<void> {
+  for (let index: number = 1; index <= maxTabs; index += 1) {
+    const workerId: string = `worker-${index}`;
+    if (workerTabs.has(workerId)) {
+      continue;
+    }
+    const createdTab: unknown = await browser.tabs.create({ url: "https://chatgpt.com/", active: false });
+    if (typeof createdTab !== "object" || createdTab === null) {
+      throw new Error("worker tab has no id");
+    }
+    const tabRecord: Record<string, unknown> = createdTab as Record<string, unknown>;
+    if (typeof tabRecord["id"] !== "number") {
+      throw new Error("worker tab has no id");
+    }
+    workerTabs.set(workerId, tabRecord["id"]);
   }
-  const createdTab: unknown = await browser.tabs.create({ url: "https://chatgpt.com/", active: false });
-  if (typeof createdTab !== "object" || createdTab === null) {
-    throw new Error("worker tab has no id");
-  }
-  const tabRecord: Record<string, unknown> = createdTab as Record<string, unknown>;
-  if (typeof tabRecord["id"] !== "number") {
-    throw new Error("worker tab has no id");
-  }
-  workerTabId = tabRecord["id"];
 }
 
-function sendWorkerReady(): void {
+function sendWorkerReady(workerId: string): void {
   const message: WorkerReadyMessage = {
     version: 1,
     type: "worker.ready",
@@ -130,9 +150,21 @@ function sendWorkerReady(): void {
   sendToDaemon(message);
 }
 
-function sendWorkerUnhealthy(code: string): void {
+function sendWorkerUnhealthy(workerId: string, code: string): void {
   const message: WorkerUnhealthyMessage = { version: 1, type: "worker.unhealthy", worker_id: workerId, code };
   sendToDaemon(message);
+}
+
+function findWorkerId(tabId: number | undefined): string | undefined {
+  if (tabId === undefined) {
+    return undefined;
+  }
+  for (const [workerId, workerTabId] of workerTabs.entries()) {
+    if (workerTabId === tabId) {
+      return workerId;
+    }
+  }
+  return undefined;
 }
 
 function sendToDaemon(message: ExtensionHelloMessage | HeartbeatMessage | WorkerReadyMessage | WorkerUnhealthyMessage | ExtensionToDaemonMessage): void {

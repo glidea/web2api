@@ -45,6 +45,7 @@ export type JobStartMessage = {
   payload: {
     model: string;
     input: string;
+    conversation_id?: string;
   };
 };
 

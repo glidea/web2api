@@ -110,7 +110,7 @@ test("sends a real extension page job and returns non-streaming response", async
   while (Date.now() < deadline) {
     const healthResponse: Response = await fetch(`http://127.0.0.1:${port}/healthz`);
     const health: { extension_connected: boolean; workers_ready: number } = await healthResponse.json() as { extension_connected: boolean; workers_ready: number };
-    ready = health.extension_connected && health.workers_ready === 1;
+    ready = health.extension_connected && health.workers_ready === 2;
     if (ready) {
       break;
     }

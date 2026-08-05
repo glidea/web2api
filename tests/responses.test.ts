@@ -122,4 +122,25 @@ describe("non-streaming responses", (): void => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: "model_not_available" } });
   });
+
+  it("routes previous_response_id to the original conversation", async (): Promise<void> => {
+    const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "continue", previous_response_id: "resp_conv-123_turn-1" })
+    });
+    const job: DaemonToExtensionMessage = await readDaemonMessage();
+    if (job.type !== "job.start") {
+      throw new Error(`expected job.start, got ${job.type}`);
+    }
+    expect(job.payload.conversation_id).toBe("conv-123");
+    socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: job.request_id, worker_id: job.worker_id, conversation_id: "conv-123" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 1, delta: "continued" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: job.request_id, worker_id: job.worker_id } satisfies ExtensionToDaemonMessage));
+    const response: Response = await responsePromise;
+    expect(response.status).toBe(200);
+    const body: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await response.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
+    expect(body.id).toMatch(/^resp_conv-123_[a-f0-9-]+$/);
+    expect(body.output[0]?.content[0]?.text).toBe("continued");
+  });
 });

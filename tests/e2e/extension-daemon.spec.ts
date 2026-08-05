@@ -46,7 +46,7 @@ async function waitForReady(): Promise<void> {
   while (Date.now() < deadline) {
     const response: Response = await fetch(`http://127.0.0.1:${port}/healthz`);
     const body: { extension_connected: boolean; workers_ready: number } = await response.json() as { extension_connected: boolean; workers_ready: number };
-    if (body.extension_connected && body.workers_ready === 1) {
+    if (body.extension_connected && body.workers_ready === 2) {
       return;
     }
     await new Promise<void>((resolvePromise): void => {

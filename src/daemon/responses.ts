@@ -1,11 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { ExtensionGateway, GatewayError, type TextJobResult, type TextJobHandle } from "./extension-gateway";
+import { decodeResponseId, encodeResponseId } from "./response-id";
 
 type ResponsesRequest = {
   model: string;
   input: string;
   stream: boolean;
+  conversationId: string | undefined;
 };
 
 type StreamResponseState = {
@@ -42,9 +44,9 @@ export class ResponsesService {
         await this.handleStream(request, response, body);
         return;
       }
-      const result: TextJobResult = await this.gateway.executeTextJob(body.model, body.input);
+      const result: TextJobResult = await this.gateway.executeTextJob(body.model, body.input, body.conversationId);
       const responseBody: ResponsesBody = {
-        id: `resp_${result.conversationId}_${randomUUID()}`,
+        id: encodeResponseId(result.conversationId, randomUUID()),
         object: "response",
         created_at: Math.floor(Date.now() / 1000),
         status: "completed",
@@ -81,7 +83,18 @@ export class ResponsesService {
     if (typeof record["input"] !== "string") {
       throw new RequestError(400, "unsupported_parameter", "Only string input is supported");
     }
-    return { model: "chatgpt/default", input: record["input"], stream: record["stream"] === true };
+    let conversationId: string | undefined;
+    if (record["previous_response_id"] !== undefined) {
+      if (typeof record["previous_response_id"] !== "string") {
+        throw new RequestError(400, "invalid_request", "previous_response_id must be a string");
+      }
+      try {
+        conversationId = decodeResponseId(record["previous_response_id"]).conversationId;
+      } catch {
+        throw new RequestError(400, "invalid_request", "Invalid previous_response_id");
+      }
+    }
+    return { model: "chatgpt/default", input: record["input"], stream: record["stream"] === true, conversationId };
   }
 
   private async handleStream(request: IncomingMessage, response: ServerResponse, body: ResponsesRequest): Promise<void> {
@@ -91,7 +104,7 @@ export class ResponsesService {
     try {
       handle = this.gateway.startTextJob(body.model, body.input, {
         onConversationBound: (conversationId: string): void => {
-          state.responseId = `resp_${conversationId}_${randomUUID()}`;
+          state.responseId = encodeResponseId(conversationId, randomUUID());
           this.writeEvent(response, "response.created", { type: "response.created", response: { id: state.responseId, object: "response", status: "in_progress", model: body.model } });
           this.writeEvent(response, "response.in_progress", { type: "response.in_progress", response_id: state.responseId });
           this.writeEvent(response, "response.output_item.added", { type: "response.output_item.added", response_id: state.responseId, item: { id: state.outputItemId, type: "message", role: "assistant" } });
@@ -102,7 +115,7 @@ export class ResponsesService {
             this.writeEvent(response, "response.output_text.delta", { type: "response.output_text.delta", response_id: state.responseId, item_id: state.outputItemId, delta });
           }
         }
-      });
+      }, body.conversationId);
     } catch (error: unknown) {
       this.sendServiceError(response, error);
       return;

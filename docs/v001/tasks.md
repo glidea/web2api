@@ -131,10 +131,10 @@
 - 请求结果找回
 
 ## TODO 清单
-- [ ] 1. 先写 SSE 顺序和断开取消 E2E 测试
-- [ ] 2. 实现 assistant 文本非回滚增量提取
-- [ ] 3. 实现完整 Responses SSE 生命周期事件
-- [ ] 4. 实现 HTTP 断开到页面停止的取消链路
+- [x] 1. 先写 SSE 顺序和断开取消 E2E 测试
+- [x] 2. 实现 assistant 文本非回滚增量提取
+- [x] 3. 实现完整 Responses SSE 生命周期事件
+- [x] 4. 实现 HTTP 断开到页面停止的取消链路
 
 ## 验收测试步骤
 1. 发送 `stream: true` 请求并逐帧读取 SSE
@@ -154,11 +154,11 @@
 - 持久化任务队列
 
 ## TODO 清单
-- [ ] 1. 先写多轮、同会话串行和跨会话并行 E2E 测试
-- [ ] 2. 实现 response ID 编解码
-- [ ] 3. 实现 Scheduler、conversation lock 和 worker lease
-- [ ] 4. 实现扩展固定 tab pool 与导航重绑定
-- [ ] 5. 支持 `max_tabs` 配置
+- [x] 1. 先写多轮、同会话串行和跨会话并行 E2E 测试
+- [x] 2. 实现 response ID 编解码
+- [x] 3. 实现 Scheduler、conversation lock 和 worker lease
+- [x] 4. 实现扩展固定 tab pool 与导航重绑定
+- [x] 5. 支持 `max_tabs` 配置
 
 ## 验收测试步骤
 1. 使用首轮 `response.id` 发起续接并确认进入同一 ChatGPT conversation

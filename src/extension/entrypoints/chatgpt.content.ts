@@ -25,6 +25,9 @@ export default defineContentScript({
 
 async function runTextJob(message: JobStartMessage): Promise<void> {
   try {
+    if (message.payload.conversation_id !== undefined) {
+      window.history.pushState({}, "", `/c/${encodeURIComponent(message.payload.conversation_id)}`);
+    }
     submitPrompt(document, message.payload.input);
     const conversationId: string = await waitForConversationId();
     const bound: ExtensionToDaemonMessage = { version: 1, type: "job.conversation_bound", request_id: message.request_id, worker_id: message.worker_id, conversation_id: conversationId };
