@@ -1,0 +1,25 @@
+{
+  "name": "web2api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare:extension": "wxt prepare src/extension",
+    "build:extension": "wxt build src/extension --mv3",
+    "test:e2e:extension": "pnpm build:extension && playwright test --config playwright.config.ts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@sveltejs/vite-plugin-svelte": "^6.2.0",
+    "@types/node": "^24.0.0",
+    "svelte": "^5.54.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.1.2",
+    "wxt": "^0.20.27",
+    "@wxt-dev/module-svelte": "^2.0.5"
+  },
+  "packageManager": "pnpm@10.18.3+sha512.bbd16e6d7286fd7e01f6b3c0b3c932cda2965c06a908328f74663f10a9aea51f1129eea615134bf992831b009eabe167ecb7008b597f40ff9bc75946aadfb08d"
+}

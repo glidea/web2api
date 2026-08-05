@@ -11,10 +11,10 @@
 - Responses API
 
 ## TODO 清单
-- [ ] 1. 建立 pnpm、WXT、TypeScript、Vitest 和 Playwright 配置
-- [ ] 2. 创建 background、content script 和 popup 最小入口
-- [ ] 3. 创建 Playwright persistent context 扩展 fixture
-- [ ] 4. 使用 route fixture 模拟 `chatgpt.com` 页面
+- [x] 1. 建立 pnpm、WXT、TypeScript、Vitest 和 Playwright 配置
+- [x] 2. 创建 background、content script 和 popup 最小入口
+- [x] 3. 创建 Playwright persistent context 扩展 fixture
+- [x] 4. 使用 route fixture 模拟 `chatgpt.com` 页面
 
 ## 验收测试步骤
 1. 运行 `pnpm test:e2e:extension`
