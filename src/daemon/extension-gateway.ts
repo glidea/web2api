@@ -14,6 +14,7 @@ type WorkerState = {
 export type TextJobResult = {
   conversationId: string;
   text: string;
+  image: { mediaType: string; data: string } | undefined;
 };
 
 export class GatewayError extends Error {
@@ -34,11 +35,14 @@ type PendingJob = {
   timeout: NodeJS.Timeout | undefined;
   onConversationBound: (conversationId: string) => void;
   onDelta: (delta: string) => void;
+  onImage: (image: { mediaType: string; data: string }) => void;
+  image: { mediaType: string; data: string } | undefined;
 };
 
 export type TextJobCallbacks = {
   onConversationBound: (conversationId: string) => void;
   onDelta: (delta: string) => void;
+  onImage: (image: { mediaType: string; data: string }) => void;
 };
 
 export type TextJobHandle = {
@@ -87,11 +91,11 @@ export class ExtensionGateway {
     this.websocketServer.close();
   }
 
-  public executeTextJob(model: string, input: string, conversationId?: string, reasoningEffort?: string): Promise<TextJobResult> {
-    return this.startTextJob(model, input, { onConversationBound: (): void => undefined, onDelta: (): void => undefined }, conversationId, reasoningEffort).result;
+  public executeTextJob(model: string, input: string, conversationId?: string, reasoningEffort?: string, images?: Array<{ data: string; media_type: string; name: string }>, generateImage: boolean = false): Promise<TextJobResult> {
+    return this.startTextJob(model, input, { onConversationBound: (): void => undefined, onDelta: (): void => undefined, onImage: (): void => undefined }, conversationId, reasoningEffort, images, generateImage).result;
   }
 
-  public startTextJob(model: string, input: string, callbacks: TextJobCallbacks, conversationId?: string, reasoningEffort?: string): TextJobHandle {
+  public startTextJob(model: string, input: string, callbacks: TextJobCallbacks, conversationId?: string, reasoningEffort?: string, images?: Array<{ data: string; media_type: string; name: string }>, generateImage: boolean = false): TextJobHandle {
     if (this.connection === undefined || this.status.extensionConnected === false) {
       throw new GatewayError("extension_unavailable", "Extension is not connected");
     }
@@ -100,7 +104,7 @@ export class ExtensionGateway {
     }
     const requestId: string = `req_${randomUUID()}`;
     const result: Promise<TextJobResult> = new Promise<TextJobResult>((resolve, reject): void => {
-      this.pendingJobs.set(requestId, { workerId: undefined, conversationId: undefined, text: "", resolve, reject, timeout: undefined, onConversationBound: callbacks.onConversationBound, onDelta: callbacks.onDelta });
+      this.pendingJobs.set(requestId, { workerId: undefined, conversationId: undefined, text: "", resolve, reject, timeout: undefined, onConversationBound: callbacks.onConversationBound, onDelta: callbacks.onDelta, onImage: callbacks.onImage, image: undefined });
     });
     const scheduled: { id: string; result: Promise<TextJobResult> } = this.scheduler.enqueueWithId(requestId, conversationId, async (workerId: string): Promise<TextJobResult> => {
       const pendingJob: PendingJob | undefined = this.pendingJobs.get(requestId);
@@ -118,7 +122,9 @@ export class ExtensionGateway {
         model,
         input,
         ...(conversationId === undefined ? {} : { conversation_id: conversationId }),
-        ...(reasoningEffort === undefined ? {} : { reasoning_effort: reasoningEffort })
+        ...(reasoningEffort === undefined ? {} : { reasoning_effort: reasoningEffort }),
+        ...(images === undefined || images.length === 0 ? {} : { images }),
+        ...(generateImage ? { generate_image: true } : {})
       };
       const job: JobStartMessage = { version: 1, type: "job.start", request_id: requestId, worker_id: workerId, payload };
       this.send(this.connection, job);
@@ -265,6 +271,15 @@ export class ExtensionGateway {
           }
         }
         return;
+      case "job.image.completed":
+        {
+          const pendingJob: PendingJob | undefined = this.pendingJobs.get(message.request_id);
+          if (pendingJob !== undefined) {
+            pendingJob.image = { mediaType: message.media_type, data: message.data };
+            pendingJob.onImage(pendingJob.image);
+          }
+        }
+        return;
       case "job.completed":
         this.finishJob(message.request_id);
         return;
@@ -287,7 +302,7 @@ export class ExtensionGateway {
       pendingJob.reject(new GatewayError("chatgpt_adapter_error", "ChatGPT did not bind a conversation"));
       return;
     }
-    pendingJob.resolve({ conversationId: pendingJob.conversationId, text: pendingJob.text });
+    pendingJob.resolve({ conversationId: pendingJob.conversationId, text: pendingJob.text, image: pendingJob.image });
   }
 
   private failJob(requestId: string, error: GatewayError): void {

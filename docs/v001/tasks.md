@@ -201,11 +201,11 @@
 - 图片持久化和缓存
 
 ## TODO 清单
-- [ ] 1. 先写 URL、data URL、多图和生图 E2E 测试
-- [ ] 2. 实现 daemon Image Resolver
-- [ ] 3. 实现逐图 WebSocket 传输与附件 ready 确认
-- [ ] 4. 实现文本生图和图片编辑提交
-- [ ] 5. 实现最终图片字节提取与 `image_generation_call.result`
+- [x] 1. 先写 URL、data URL、多图和生图 E2E 测试
+- [x] 2. 实现 daemon Image Resolver
+- [x] 3. 实现逐图 WebSocket 传输与附件 ready 确认
+- [x] 4. 实现文本生图和图片编辑提交
+- [x] 5. 实现最终图片字节提取与 `image_generation_call.result`
 
 ## 验收测试步骤
 1. 分别用 data URL 和 HTTP URL 编辑图片，确认结果可解码

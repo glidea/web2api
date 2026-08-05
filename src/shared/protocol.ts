@@ -47,6 +47,8 @@ export type JobStartMessage = {
     input: string;
     conversation_id?: string;
     reasoning_effort?: string;
+    images?: Array<{ data: string; media_type: string; name: string }>;
+    generate_image?: boolean;
   };
 };
 
@@ -74,6 +76,15 @@ export type JobOutputTextDeltaMessage = {
   delta: string;
 };
 
+export type JobImageCompletedMessage = {
+  version: 1;
+  type: "job.image.completed";
+  request_id: string;
+  worker_id: string;
+  media_type: string;
+  data: string;
+};
+
 export type JobCompletedMessage = {
   version: 1;
   type: "job.completed";
@@ -90,7 +101,7 @@ export type JobFailedMessage = {
   message: string;
 };
 
-export type ExtensionToDaemonMessage = ExtensionHelloMessage | WorkerReadyMessage | WorkerUnhealthyMessage | CapabilitiesUpdatedMessage | HeartbeatMessage | JobConversationBoundMessage | JobOutputTextDeltaMessage | JobCompletedMessage | JobFailedMessage;
+export type ExtensionToDaemonMessage = ExtensionHelloMessage | WorkerReadyMessage | WorkerUnhealthyMessage | CapabilitiesUpdatedMessage | HeartbeatMessage | JobConversationBoundMessage | JobOutputTextDeltaMessage | JobImageCompletedMessage | JobCompletedMessage | JobFailedMessage;
 
 export type ExtensionConfigureMessage = {
   version: 1;

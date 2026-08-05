@@ -173,4 +173,30 @@ describe("non-streaming responses", (): void => {
     expect(body.id).toMatch(/^resp_conv-123_[a-f0-9-]+$/);
     expect(body.output[0]?.content[0]?.text).toBe("continued");
   });
+
+  it("resolves input images and projects a generated image result", async (): Promise<void> => {
+    const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "chatgpt/default",
+        input: [{ type: "input_text", text: "edit" }, { type: "input_image", image_url: "data:image/png;base64,AQID" }],
+        tools: [{ type: "image_generation" }]
+      })
+    });
+    const job: DaemonToExtensionMessage = await readDaemonMessage();
+    if (job.type !== "job.start") {
+      throw new Error(`expected job.start, got ${job.type}`);
+    }
+    expect(job.payload.input).toBe("edit");
+    expect(job.payload.images).toEqual([{ data: "AQID", media_type: "image/png", name: "image.png" }]);
+    expect(job.payload.generate_image).toBe(true);
+    socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: job.request_id, worker_id: job.worker_id, conversation_id: "conv-image" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.image.completed", request_id: job.request_id, worker_id: job.worker_id, media_type: "image/png", data: "BAUG" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: job.request_id, worker_id: job.worker_id } satisfies ExtensionToDaemonMessage));
+    const response: Response = await responsePromise;
+    expect(response.status).toBe(200);
+    const body: { output: Array<{ type: string; result?: string }> } = await response.json() as { output: Array<{ type: string; result?: string }> };
+    expect(body.output.find((item: { type: string }): boolean => item.type === "image_generation_call")?.result).toBe("BAUG");
+  });
 });

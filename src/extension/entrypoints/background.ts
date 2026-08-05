@@ -185,7 +185,7 @@ function isJobEvent(message: unknown): message is ExtensionToDaemonMessage {
   }
   const value: Record<string, unknown> = message as Record<string, unknown>;
   const type: unknown = value["type"];
-  return type === "job.conversation_bound" || type === "job.output_text.delta" || type === "job.completed" || type === "job.failed";
+  return type === "job.conversation_bound" || type === "job.output_text.delta" || type === "job.image.completed" || type === "job.completed" || type === "job.failed";
 }
 
 function isContentReadyMessage(message: unknown): message is ContentReadyMessage {

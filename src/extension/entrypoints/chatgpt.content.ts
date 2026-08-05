@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { cancelGeneration, getCapabilities, parseConversationId, selectModel, selectReasoningEffort, submitPrompt, waitForFinalAssistantText } from "../lib/chatgpt-adapter";
+import { cancelGeneration, extractGeneratedImage, getCapabilities, parseConversationId, selectModel, selectReasoningEffort, submitPrompt, uploadImages, waitForFinalAssistantText, type ImagePayload } from "../lib/chatgpt-adapter";
 import type { Capabilities, JobCancelMessage, JobStartMessage, ExtensionToDaemonMessage } from "../../shared/protocol";
 
 export default defineContentScript({
@@ -35,6 +35,9 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
     if (message.payload.reasoning_effort !== undefined) {
       selectReasoningEffort(document, message.payload.reasoning_effort);
     }
+    if (message.payload.images !== undefined) {
+      await uploadImages(document, message.payload.images.map(toImagePayload));
+    }
     submitPrompt(document, message.payload.input);
     const conversationId: string = await waitForConversationId();
     const bound: ExtensionToDaemonMessage = { version: 1, type: "job.conversation_bound", request_id: message.request_id, worker_id: message.worker_id, conversation_id: conversationId };
@@ -42,6 +45,13 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
     const text: string = await waitForFinalAssistantText(document);
     const delta: ExtensionToDaemonMessage = { version: 1, type: "job.output_text.delta", request_id: message.request_id, worker_id: message.worker_id, sequence: 1, delta: text };
     await browser.runtime.sendMessage(delta);
+    if (message.payload.generate_image === true) {
+      const image: Uint8Array | undefined = await extractGeneratedImage(document);
+      if (image !== undefined) {
+        const completedImage: ExtensionToDaemonMessage = { version: 1, type: "job.image.completed", request_id: message.request_id, worker_id: message.worker_id, media_type: "image/png", data: encodeBase64(image) };
+        await browser.runtime.sendMessage(completedImage);
+      }
+    }
     const completed: ExtensionToDaemonMessage = { version: 1, type: "job.completed", request_id: message.request_id, worker_id: message.worker_id };
     await browser.runtime.sendMessage(completed);
   } catch (error: unknown) {
@@ -55,6 +65,23 @@ function toProtocolCapabilities(capabilities: { models: string[]; reasoningEffor
     models: ["chatgpt/default", ...capabilities.models.map((model: string): string => model.startsWith("chatgpt/") ? model : `chatgpt/${model}`)],
     reasoning_efforts: capabilities.reasoningEfforts
   };
+}
+
+function toImagePayload(image: { data: string; media_type: string; name: string }): ImagePayload {
+  const binary: string = atob(image.data);
+  const bytes: Uint8Array = new Uint8Array(binary.length);
+  for (let index: number = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return { bytes, mediaType: image.media_type, name: image.name };
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary: string = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 async function waitForConversationId(): Promise<string> {

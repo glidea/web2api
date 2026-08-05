@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { ExtensionGateway, GatewayError, type TextJobResult, type TextJobHandle } from "./extension-gateway";
 import { decodeResponseId, encodeResponseId } from "./response-id";
+import { resolveImage, type ResolvedImage } from "./image-resolver";
 
 type ResponsesRequest = {
   model: string;
@@ -9,6 +10,8 @@ type ResponsesRequest = {
   stream: boolean;
   conversationId: string | undefined;
   reasoningEffort: string | undefined;
+  images: Array<ResolvedImage>;
+  generateImage: boolean;
 };
 
 type StreamResponseState = {
@@ -28,6 +31,11 @@ type ResponsesBody = {
     status: "completed";
     role: "assistant";
     content: Array<{ type: "output_text"; text: string; annotations: [] }>;
+  } | {
+    id: string;
+    type: "image_generation_call";
+    status: "completed";
+    result: string;
   }>;
 };
 
@@ -45,20 +53,24 @@ export class ResponsesService {
         await this.handleStream(request, response, body);
         return;
       }
-      const result: TextJobResult = await this.gateway.executeTextJob(body.model, body.input, body.conversationId, body.reasoningEffort);
+      const result: TextJobResult = await this.gateway.executeTextJob(body.model, body.input, body.conversationId, body.reasoningEffort, body.images.map(toProtocolImage), body.generateImage);
+      const output: ResponsesBody["output"] = [{
+        id: `msg_${randomUUID()}`,
+        type: "message",
+        status: "completed",
+        role: "assistant",
+        content: [{ type: "output_text", text: result.text, annotations: [] }]
+      }];
+      if (result.image !== undefined) {
+        output.push({ id: `ig_${randomUUID()}`, type: "image_generation_call", status: "completed", result: result.image.data });
+      }
       const responseBody: ResponsesBody = {
         id: encodeResponseId(result.conversationId, randomUUID()),
         object: "response",
         created_at: Math.floor(Date.now() / 1000),
         status: "completed",
         model: body.model,
-        output: [{
-          id: `msg_${randomUUID()}`,
-          type: "message",
-          status: "completed",
-          role: "assistant",
-          content: [{ type: "output_text", text: result.text, annotations: [] }]
-        }]
+        output
       };
       this.sendJson(response, 200, responseBody);
     } catch (error: unknown) {
@@ -81,8 +93,32 @@ export class ResponsesService {
     if (typeof record["model"] !== "string" || !this.gateway.supportsModel(record["model"])) {
       throw new RequestError(400, "model_not_available", "Requested model is not available");
     }
-    if (typeof record["input"] !== "string") {
-      throw new RequestError(400, "unsupported_parameter", "Only string input is supported");
+    let input: string = "";
+    const images: Array<ResolvedImage> = [];
+    if (typeof record["input"] === "string") {
+      input = record["input"];
+    } else if (Array.isArray(record["input"])) {
+      for (const item of record["input"]) {
+        if (typeof item !== "object" || item === null) {
+          throw new RequestError(400, "invalid_request", "input item must be an object");
+        }
+        const content: Record<string, unknown> = item as Record<string, unknown>;
+        if (content["type"] === "input_text" && typeof content["text"] === "string") {
+          input += `${input.length === 0 ? "" : "\n"}${content["text"]}`;
+          continue;
+        }
+        if (content["type"] === "input_image" && typeof content["image_url"] === "string") {
+          try {
+            images.push(await resolveImage(content["image_url"]));
+          } catch (error: unknown) {
+            throw new RequestError(400, "image_invalid", error instanceof Error ? error.message : String(error));
+          }
+          continue;
+        }
+        throw new RequestError(400, "unsupported_parameter", "Unsupported input item");
+      }
+    } else {
+      throw new RequestError(400, "unsupported_parameter", "input must be a string or input item array");
     }
     let conversationId: string | undefined;
     if (record["previous_response_id"] !== undefined) {
@@ -109,7 +145,14 @@ export class ResponsesService {
         throw new RequestError(400, "reasoning_effort_not_available", "Requested reasoning effort is not available");
       }
     }
-    return { model: record["model"], input: record["input"], stream: record["stream"] === true, conversationId, reasoningEffort };
+    let generateImage: boolean = false;
+    if (record["tools"] !== undefined) {
+      if (!Array.isArray(record["tools"])) {
+        throw new RequestError(400, "invalid_request", "tools must be an array");
+      }
+      generateImage = record["tools"].some((tool: unknown): boolean => typeof tool === "object" && tool !== null && (tool as Record<string, unknown>)["type"] === "image_generation");
+    }
+    return { model: record["model"], input, stream: record["stream"] === true, conversationId, reasoningEffort, images, generateImage };
   }
 
   private async handleStream(request: IncomingMessage, response: ServerResponse, body: ResponsesRequest): Promise<void> {
@@ -129,8 +172,9 @@ export class ResponsesService {
           if (state.responseId !== undefined) {
             this.writeEvent(response, "response.output_text.delta", { type: "response.output_text.delta", response_id: state.responseId, item_id: state.outputItemId, delta });
           }
-        }
-      }, body.conversationId, body.reasoningEffort);
+        },
+        onImage: (): void => undefined
+      }, body.conversationId, body.reasoningEffort, body.images.map(toProtocolImage), body.generateImage);
     } catch (error: unknown) {
       this.sendServiceError(response, error);
       return;
@@ -207,4 +251,8 @@ function readBody(request: IncomingMessage): Promise<string> {
     request.on("end", (): void => resolve(content));
     request.on("error", reject);
   });
+}
+
+function toProtocolImage(image: ResolvedImage): { data: string; media_type: string; name: string } {
+  return { data: Buffer.from(image.bytes).toString("base64"), media_type: image.mediaType, name: image.name };
 }
