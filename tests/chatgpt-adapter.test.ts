@@ -7,6 +7,7 @@ import {
   selectModel,
   selectReasoningEffort,
   submitPrompt,
+  cancelGeneration,
   uploadImages,
   type ImagePayload
 } from "../src/extension/lib/chatgpt-adapter";
@@ -74,6 +75,17 @@ describe("ChatGPT adapter", (): void => {
     });
     submitPrompt(document, "hello");
     expect((document.querySelector("[data-testid=composer]") as HTMLTextAreaElement).value).toBe("hello");
+    expect(clicks).toBe(1);
+  });
+
+  it("clicks the page stop button when generation is cancelled", (): void => {
+    createPage('<button data-testid="stop-button"></button>');
+    const button: HTMLButtonElement = document.querySelector("[data-testid=stop-button]") as HTMLButtonElement;
+    let clicks: number = 0;
+    button.addEventListener("click", (): void => {
+      clicks += 1;
+    });
+    cancelGeneration(document);
     expect(clicks).toBe(1);
   });
 

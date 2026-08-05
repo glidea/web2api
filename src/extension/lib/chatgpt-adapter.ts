@@ -85,6 +85,11 @@ export function submitPrompt(documentRoot: Document, prompt: string): void {
   sendButton.click();
 }
 
+export function cancelGeneration(documentRoot: Document): void {
+  const stopButton: HTMLButtonElement | null = documentRoot.querySelector("button[data-testid=stop-button]");
+  stopButton?.click();
+}
+
 export async function waitForFinalAssistantText(documentRoot: Document): Promise<string> {
   let stableText: string = "";
   let stableReads: number = 0;

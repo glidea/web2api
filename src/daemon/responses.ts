@@ -1,11 +1,16 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { ExtensionGateway, GatewayError, type TextJobResult } from "./extension-gateway";
+import { ExtensionGateway, GatewayError, type TextJobResult, type TextJobHandle } from "./extension-gateway";
 
 type ResponsesRequest = {
   model: string;
   input: string;
   stream: boolean;
+};
+
+type StreamResponseState = {
+  responseId: string | undefined;
+  outputItemId: string;
 };
 
 type ResponsesBody = {
@@ -33,6 +38,10 @@ export class ResponsesService {
   public async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
       const body: ResponsesRequest = await this.parseRequest(request);
+      if (body.stream) {
+        await this.handleStream(request, response, body);
+        return;
+      }
       const result: TextJobResult = await this.gateway.executeTextJob(body.model, body.input);
       const responseBody: ResponsesBody = {
         id: `resp_${result.conversationId}_${randomUUID()}`,
@@ -72,10 +81,57 @@ export class ResponsesService {
     if (typeof record["input"] !== "string") {
       throw new RequestError(400, "unsupported_parameter", "Only string input is supported");
     }
-    if (record["stream"] === true) {
-      throw new RequestError(400, "unsupported_parameter", "Streaming is not available in this endpoint yet");
+    return { model: "chatgpt/default", input: record["input"], stream: record["stream"] === true };
+  }
+
+  private async handleStream(request: IncomingMessage, response: ServerResponse, body: ResponsesRequest): Promise<void> {
+    const state: StreamResponseState = { responseId: undefined, outputItemId: `msg_${randomUUID()}` };
+    let clientClosed: boolean = false;
+    let handle: TextJobHandle;
+    try {
+      handle = this.gateway.startTextJob(body.model, body.input, {
+        onConversationBound: (conversationId: string): void => {
+          state.responseId = `resp_${conversationId}_${randomUUID()}`;
+          this.writeEvent(response, "response.created", { type: "response.created", response: { id: state.responseId, object: "response", status: "in_progress", model: body.model } });
+          this.writeEvent(response, "response.in_progress", { type: "response.in_progress", response_id: state.responseId });
+          this.writeEvent(response, "response.output_item.added", { type: "response.output_item.added", response_id: state.responseId, item: { id: state.outputItemId, type: "message", role: "assistant" } });
+          this.writeEvent(response, "response.content_part.added", { type: "response.content_part.added", response_id: state.responseId, item_id: state.outputItemId });
+        },
+        onDelta: (delta: string): void => {
+          if (state.responseId !== undefined) {
+            this.writeEvent(response, "response.output_text.delta", { type: "response.output_text.delta", response_id: state.responseId, item_id: state.outputItemId, delta });
+          }
+        }
+      });
+    } catch (error: unknown) {
+      this.sendServiceError(response, error);
+      return;
     }
-    return { model: "chatgpt/default", input: record["input"], stream: false };
+    response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
+    const cancelOnDisconnect = (): void => {
+      if (!clientClosed) {
+        clientClosed = true;
+        this.gateway.cancelJob(handle.requestId);
+      }
+    };
+    request.on("close", cancelOnDisconnect);
+    response.on("close", cancelOnDisconnect);
+    try {
+      const result: TextJobResult = await handle.result;
+      if (clientClosed || state.responseId === undefined) {
+        return;
+      }
+      this.writeEvent(response, "response.output_text.done", { type: "response.output_text.done", response_id: state.responseId, item_id: state.outputItemId, text: result.text });
+      this.writeEvent(response, "response.content_part.done", { type: "response.content_part.done", response_id: state.responseId, item_id: state.outputItemId });
+      this.writeEvent(response, "response.output_item.done", { type: "response.output_item.done", response_id: state.responseId, item_id: state.outputItemId });
+      this.writeEvent(response, "response.completed", { type: "response.completed", response_id: state.responseId });
+      response.end();
+    } catch (error: unknown) {
+      if (!clientClosed) {
+        this.writeEvent(response, "error", { type: "error", error: { message: error instanceof Error ? error.message : String(error), code: error instanceof GatewayError ? error.code : "internal_error" } });
+        response.end();
+      }
+    }
   }
 
   private sendServiceError(response: ServerResponse, error: unknown): void {
@@ -95,6 +151,10 @@ export class ResponsesService {
     const content: string = JSON.stringify(body);
     response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(content) });
     response.end(content);
+  }
+
+  private writeEvent(response: ServerResponse, event: string, body: unknown): void {
+    response.write(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`);
   }
 }
 

@@ -48,6 +48,13 @@ export type JobStartMessage = {
   };
 };
 
+export type JobCancelMessage = {
+  version: 1;
+  type: "job.cancel";
+  request_id: string;
+  worker_id: string;
+};
+
 export type JobConversationBoundMessage = {
   version: 1;
   type: "job.conversation_bound";
@@ -89,7 +96,7 @@ export type ExtensionConfigureMessage = {
   max_tabs: number;
 };
 
-export type DaemonToExtensionMessage = ExtensionConfigureMessage | HeartbeatMessage | JobStartMessage;
+export type DaemonToExtensionMessage = ExtensionConfigureMessage | HeartbeatMessage | JobStartMessage | JobCancelMessage;
 
 export function parseExtensionMessage(value: unknown): ExtensionToDaemonMessage | undefined {
   if (typeof value !== "object" || value === null) {

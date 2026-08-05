@@ -81,6 +81,10 @@ async function connectToDaemon(): Promise<void> {
     }
     if (message.type === "job.start" && workerTabId !== undefined) {
       void browser.tabs.sendMessage(workerTabId, message);
+      return;
+    }
+    if (message.type === "job.cancel" && workerTabId !== undefined) {
+      void browser.tabs.sendMessage(workerTabId, message);
     }
   });
   socket.addEventListener("close", (): void => {

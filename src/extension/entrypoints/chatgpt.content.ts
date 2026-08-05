@@ -1,7 +1,7 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { parseConversationId, submitPrompt, waitForFinalAssistantText } from "../lib/chatgpt-adapter";
-import type { JobStartMessage, ExtensionToDaemonMessage } from "../../shared/protocol";
+import { cancelGeneration, parseConversationId, submitPrompt, waitForFinalAssistantText } from "../lib/chatgpt-adapter";
+import type { JobCancelMessage, JobStartMessage, ExtensionToDaemonMessage } from "../../shared/protocol";
 
 export default defineContentScript({
   matches: ["https://chatgpt.com/*", "https://chat.openai.com/*"],
@@ -14,6 +14,9 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((message: unknown): Promise<void> => {
       if (isJobStartMessage(message)) {
         void runTextJob(message);
+      }
+      if (isJobCancelMessage(message)) {
+        cancelGeneration(document);
       }
       return Promise.resolve();
     });
@@ -57,4 +60,12 @@ function isJobStartMessage(message: unknown): message is JobStartMessage {
   }
   const value: Record<string, unknown> = message as Record<string, unknown>;
   return value["type"] === "job.start";
+}
+
+function isJobCancelMessage(message: unknown): message is JobCancelMessage {
+  if (typeof message !== "object" || message === null) {
+    return false;
+  }
+  const value: Record<string, unknown> = message as Record<string, unknown>;
+  return value["type"] === "job.cancel";
 }

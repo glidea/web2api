@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
-import { parseExtensionMessage, type Capabilities, type DaemonToExtensionMessage, type ExtensionToDaemonMessage, type JobStartMessage } from "../shared/protocol";
+import { parseExtensionMessage, type Capabilities, type DaemonToExtensionMessage, type ExtensionToDaemonMessage, type JobCancelMessage, type JobStartMessage } from "../shared/protocol";
 import type { DaemonConfig } from "./config";
 import type { DaemonServer, DaemonStatus } from "./server";
 
@@ -31,6 +31,18 @@ type PendingJob = {
   resolve: (result: TextJobResult) => void;
   reject: (error: GatewayError) => void;
   timeout: NodeJS.Timeout;
+  onConversationBound: (conversationId: string) => void;
+  onDelta: (delta: string) => void;
+};
+
+export type TextJobCallbacks = {
+  onConversationBound: (conversationId: string) => void;
+  onDelta: (delta: string) => void;
+};
+
+export type TextJobHandle = {
+  requestId: string;
+  result: Promise<TextJobResult>;
 };
 
 export class ExtensionGateway {
@@ -71,25 +83,42 @@ export class ExtensionGateway {
   }
 
   public executeTextJob(model: string, input: string): Promise<TextJobResult> {
+    return this.startTextJob(model, input, { onConversationBound: (): void => undefined, onDelta: (): void => undefined }).result;
+  }
+
+  public startTextJob(model: string, input: string, callbacks: TextJobCallbacks): TextJobHandle {
     if (this.connection === undefined || this.status.extensionConnected === false) {
-      return Promise.reject(new GatewayError("extension_unavailable", "Extension is not connected"));
+      throw new GatewayError("extension_unavailable", "Extension is not connected");
     }
     const workerId: string | undefined = this.findIdleWorker();
     if (workerId === undefined) {
-      return Promise.reject(new GatewayError("extension_unavailable", "No ready worker is available"));
+      throw new GatewayError("extension_unavailable", "No ready worker is available");
     }
     const requestId: string = `req_${randomUUID()}`;
     this.busyWorkers.add(workerId);
-    return new Promise<TextJobResult>((resolve, reject): void => {
+    const result: Promise<TextJobResult> = new Promise<TextJobResult>((resolve, reject): void => {
       const timeout: NodeJS.Timeout = setTimeout((): void => {
         this.pendingJobs.delete(requestId);
         this.busyWorkers.delete(workerId);
         reject(new GatewayError("chatgpt_adapter_error", "ChatGPT job timed out"));
       }, 120_000);
-      this.pendingJobs.set(requestId, { workerId, conversationId: undefined, text: "", resolve, reject, timeout });
+      this.pendingJobs.set(requestId, { workerId, conversationId: undefined, text: "", resolve, reject, timeout, onConversationBound: callbacks.onConversationBound, onDelta: callbacks.onDelta });
       const job: JobStartMessage = { version: 1, type: "job.start", request_id: requestId, worker_id: workerId, payload: { model, input } };
       this.send(this.connection as WebSocket, job);
     });
+    return { requestId, result };
+  }
+
+  public cancelJob(requestId: string): void {
+    const pendingJob: PendingJob | undefined = this.pendingJobs.get(requestId);
+    if (pendingJob === undefined) {
+      return;
+    }
+    if (this.connection !== undefined) {
+      const cancel: JobCancelMessage = { version: 1, type: "job.cancel", request_id: requestId, worker_id: pendingJob.workerId };
+      this.send(this.connection, cancel);
+    }
+    this.failJob(requestId, new GatewayError("extension_unavailable", "Request cancelled"));
   }
 
   private handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
@@ -168,11 +197,18 @@ export class ExtensionGateway {
           const pendingJob: PendingJob | undefined = this.pendingJobs.get(message.request_id);
           if (pendingJob !== undefined) {
             pendingJob.conversationId = message.conversation_id;
+            pendingJob.onConversationBound(message.conversation_id);
           }
         }
         return;
       case "job.output_text.delta":
-        this.pendingJobs.get(message.request_id)!.text += message.delta;
+        {
+          const pendingJob: PendingJob | undefined = this.pendingJobs.get(message.request_id);
+          if (pendingJob !== undefined) {
+            pendingJob.text += message.delta;
+            pendingJob.onDelta(message.delta);
+          }
+        }
         return;
       case "job.completed":
         this.finishJob(message.request_id);
