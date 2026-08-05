@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
-import type { ExtensionHelloMessage, HeartbeatMessage, WorkerReadyMessage, WorkerUnhealthyMessage, DaemonToExtensionMessage } from "../../shared/protocol";
+import type { ExtensionHelloMessage, HeartbeatMessage, WorkerReadyMessage, WorkerUnhealthyMessage, DaemonToExtensionMessage, ExtensionToDaemonMessage, JobStartMessage } from "../../shared/protocol";
 
 type ContentReadyMessage = {
   type: "web2api:content-ready";
@@ -37,6 +37,10 @@ export default defineBackground((): void => {
     sendWorkerUnhealthy("worker_tab_closed");
   });
   browser.runtime.onMessage.addListener((message: unknown, sender): Promise<PopupStatus | undefined> => {
+    if (isJobEvent(message)) {
+      sendToDaemon(message);
+      return Promise.resolve(undefined);
+    }
     if (isContentReadyMessage(message)) {
       contentScriptReady = true;
       if (sender.tab?.id === workerTabId) {
@@ -73,6 +77,10 @@ async function connectToDaemon(): Promise<void> {
     const message: DaemonToExtensionMessage = JSON.parse(event.data) as DaemonToExtensionMessage;
     if (message.type === "extension.configure") {
       void ensureWorkerTab();
+      return;
+    }
+    if (message.type === "job.start" && workerTabId !== undefined) {
+      void browser.tabs.sendMessage(workerTabId, message);
     }
   });
   socket.addEventListener("close", (): void => {
@@ -123,10 +131,19 @@ function sendWorkerUnhealthy(code: string): void {
   sendToDaemon(message);
 }
 
-function sendToDaemon(message: ExtensionHelloMessage | HeartbeatMessage | WorkerReadyMessage | WorkerUnhealthyMessage): void {
+function sendToDaemon(message: ExtensionHelloMessage | HeartbeatMessage | WorkerReadyMessage | WorkerUnhealthyMessage | ExtensionToDaemonMessage): void {
   if (websocket?.readyState === WebSocket.OPEN) {
     websocket.send(JSON.stringify(message));
   }
+}
+
+function isJobEvent(message: unknown): message is ExtensionToDaemonMessage {
+  if (typeof message !== "object" || message === null) {
+    return false;
+  }
+  const value: Record<string, unknown> = message as Record<string, unknown>;
+  const type: unknown = value["type"];
+  return type === "job.conversation_bound" || type === "job.output_text.delta" || type === "job.completed" || type === "job.failed";
 }
 
 function isContentReadyMessage(message: unknown): message is ContentReadyMessage {

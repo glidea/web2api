@@ -8,6 +8,7 @@
     "build:extension": "wxt build src/extension --mv3",
     "test:e2e:extension": "pnpm build:extension && playwright test --config playwright.config.ts",
     "test:e2e:extension-daemon": "pnpm build:extension && WEB2API_EXTENSION_DAEMON_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-daemon.spec.ts",
+    "test:e2e:extension-responses": "pnpm build:extension && WEB2API_EXTENSION_RESPONSES_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-responses.spec.ts",
     "test:smoke:chatgpt": "playwright test --config playwright.config.ts tests/e2e/chatgpt-smoke.spec.ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"

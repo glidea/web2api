@@ -85,6 +85,30 @@ export function submitPrompt(documentRoot: Document, prompt: string): void {
   sendButton.click();
 }
 
+export async function waitForFinalAssistantText(documentRoot: Document): Promise<string> {
+  let stableText: string = "";
+  let stableReads: number = 0;
+  const deadline: number = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const assistant: HTMLElement | null = documentRoot.querySelector("[data-message-author-role=assistant]");
+    const currentText: string = assistant?.textContent ?? "";
+    if (currentText.length > 0 && currentText === stableText) {
+      stableReads += 1;
+    } else {
+      stableText = currentText;
+      stableReads = 0;
+    }
+    const stopButton: HTMLElement | null = documentRoot.querySelector("[data-testid=stop-button]");
+    if (stableText.length > 0 && stableReads >= 2 && stopButton === null) {
+      return stableText;
+    }
+    await new Promise<void>((resolve): void => {
+      setTimeout(resolve, 250);
+    });
+  }
+  throw new Error("assistant_text_timeout");
+}
+
 export async function extractGeneratedImage(documentRoot: Document): Promise<Uint8Array | undefined> {
   const image: HTMLImageElement | null = documentRoot.querySelector("img[data-generated-image]");
   if (image === null) {

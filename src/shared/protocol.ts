@@ -37,7 +37,51 @@ export type HeartbeatMessage = {
   timestamp: number;
 };
 
-export type ExtensionToDaemonMessage = ExtensionHelloMessage | WorkerReadyMessage | WorkerUnhealthyMessage | CapabilitiesUpdatedMessage | HeartbeatMessage;
+export type JobStartMessage = {
+  version: 1;
+  type: "job.start";
+  request_id: string;
+  worker_id: string;
+  payload: {
+    model: string;
+    input: string;
+  };
+};
+
+export type JobConversationBoundMessage = {
+  version: 1;
+  type: "job.conversation_bound";
+  request_id: string;
+  worker_id: string;
+  conversation_id: string;
+};
+
+export type JobOutputTextDeltaMessage = {
+  version: 1;
+  type: "job.output_text.delta";
+  request_id: string;
+  worker_id: string;
+  sequence: number;
+  delta: string;
+};
+
+export type JobCompletedMessage = {
+  version: 1;
+  type: "job.completed";
+  request_id: string;
+  worker_id: string;
+};
+
+export type JobFailedMessage = {
+  version: 1;
+  type: "job.failed";
+  request_id: string;
+  worker_id: string;
+  code: string;
+  message: string;
+};
+
+export type ExtensionToDaemonMessage = ExtensionHelloMessage | WorkerReadyMessage | WorkerUnhealthyMessage | CapabilitiesUpdatedMessage | HeartbeatMessage | JobConversationBoundMessage | JobOutputTextDeltaMessage | JobCompletedMessage | JobFailedMessage;
 
 export type ExtensionConfigureMessage = {
   version: 1;
@@ -45,7 +89,7 @@ export type ExtensionConfigureMessage = {
   max_tabs: number;
 };
 
-export type DaemonToExtensionMessage = ExtensionConfigureMessage | HeartbeatMessage;
+export type DaemonToExtensionMessage = ExtensionConfigureMessage | HeartbeatMessage | JobStartMessage;
 
 export function parseExtensionMessage(value: unknown): ExtensionToDaemonMessage | undefined {
   if (typeof value !== "object" || value === null) {

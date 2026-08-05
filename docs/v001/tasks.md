@@ -107,11 +107,11 @@
 - 图片
 
 ## TODO 清单
-- [ ] 1. 先写 daemon 到假扩展的非流式 E2E 测试
-- [ ] 2. 实现 Responses 请求 schema 和标准错误格式
-- [ ] 3. 实现单 worker RequestTask 执行链路
-- [ ] 4. 实现页面文本提交、最终文本读取和 conversation 绑定
-- [ ] 5. 实现最终 Response JSON 投影
+- [x] 1. 先写 daemon 到假扩展的非流式 E2E 测试
+- [x] 2. 实现 Responses 请求 schema 和标准错误格式
+- [x] 3. 实现单 worker RequestTask 执行链路
+- [x] 4. 实现页面文本提交、最终文本读取和 conversation 绑定
+- [x] 5. 实现最终 Response JSON 投影
 
 ## 验收测试步骤
 1. 使用官方 OpenAI SDK，把 `base_url` 指向本地 daemon

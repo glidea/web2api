@@ -13,11 +13,13 @@ export type ModelList = {
 };
 
 export type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
+export type ResponsesHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
 export class DaemonServer {
   private readonly config: DaemonConfig;
   private readonly status: DaemonStatus;
   private readonly httpServer: Server;
+  private responsesHandler: ResponsesHandler | undefined;
 
   public constructor(config: DaemonConfig, status: DaemonStatus) {
     this.config = config;
@@ -59,6 +61,10 @@ export class DaemonServer {
     this.httpServer.on("upgrade", handler);
   }
 
+  public setResponsesHandler(handler: ResponsesHandler): void {
+    this.responsesHandler = handler;
+  }
+
   private handleRequest(request: IncomingMessage, response: ServerResponse): void {
     const method: string = request.method ?? "GET";
     const path: string = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -81,6 +87,18 @@ export class DaemonServer {
         data: [{ id: "chatgpt/default", object: "model", owned_by: "web2api" }]
       };
       this.sendJson(response, 200, models);
+      return;
+    }
+    if (method === "POST" && path === "/v1/responses") {
+      if (!this.isAuthorized(request)) {
+        this.sendError(response, 401, "invalid_api_key", "Invalid API key");
+        return;
+      }
+      if (this.responsesHandler === undefined) {
+        this.sendError(response, 503, "extension_unavailable", "Responses service is unavailable");
+        return;
+      }
+      this.responsesHandler(request, response);
       return;
     }
     this.sendJson(response, 404, { error: { message: "Not found", type: "invalid_request_error", code: "not_found" } });
