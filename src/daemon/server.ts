@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import type { DaemonConfig } from "./config";
 
 export type DaemonStatus = {
@@ -10,6 +11,8 @@ export type ModelList = {
   object: "list";
   data: Array<{ id: string; object: "model"; owned_by: "web2api" }>;
 };
+
+export type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
 
 export class DaemonServer {
   private readonly config: DaemonConfig;
@@ -50,6 +53,10 @@ export class DaemonServer {
         resolve();
       });
     });
+  }
+
+  public onUpgrade(handler: UpgradeHandler): void {
+    this.httpServer.on("upgrade", handler);
   }
 
   private handleRequest(request: IncomingMessage, response: ServerResponse): void {

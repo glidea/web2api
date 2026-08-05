@@ -7,6 +7,7 @@
     "prepare:extension": "wxt prepare src/extension",
     "build:extension": "wxt build src/extension --mv3",
     "test:e2e:extension": "pnpm build:extension && playwright test --config playwright.config.ts",
+    "test:e2e:extension-daemon": "pnpm build:extension && WEB2API_EXTENSION_DAEMON_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-daemon.spec.ts",
     "test:smoke:chatgpt": "playwright test --config playwright.config.ts tests/e2e/chatgpt-smoke.spec.ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
@@ -15,6 +16,7 @@
     "@playwright/test": "^1.55.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.0",
     "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
     "happy-dom": "^18.0.1",
     "tsx": "^4.20.5",
     "svelte": "^5.54.0",

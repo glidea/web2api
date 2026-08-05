@@ -4,6 +4,8 @@
 
   type PopupStatus = {
     contentScriptReady: boolean;
+    daemonConnected: boolean;
+    workerReady: boolean;
   };
 
   let status: PopupStatus | undefined = $state(undefined);
@@ -19,6 +21,8 @@
 
 <main>
   <h1>Web2API</h1>
+  <p>Daemon: {status?.daemonConnected ? "Connected" : "Disconnected"}</p>
+  <p>Worker: {status?.workerReady ? "Ready" : "Unavailable"}</p>
   {#if status?.contentScriptReady}
     <p>Content script ready</p>
   {:else}

@@ -82,11 +82,11 @@
 - 多标签页并发
 
 ## TODO 清单
-- [ ] 1. 先写握手、心跳和断线 E2E 测试
-- [ ] 2. 定义共享 WebSocket schema 和协议版本
-- [ ] 3. 实现 daemon Extension Gateway
-- [ ] 4. 实现 Service Worker 自动连接和单 worker tab 生命周期
-- [ ] 5. 在 popup 展示 daemon、登录和 worker 状态
+- [x] 1. 先写握手、心跳和断线 E2E 测试
+- [x] 2. 定义共享 WebSocket schema 和协议版本
+- [x] 3. 实现 daemon Extension Gateway
+- [x] 4. 实现 Service Worker 自动连接和单 worker tab 生命周期
+- [x] 5. 在 popup 展示 daemon、登录和 worker 状态
 
 ## 验收测试步骤
 1. 启动 daemon 和 Playwright 扩展 E2E

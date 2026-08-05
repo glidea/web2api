@@ -1,5 +1,6 @@
 import { loadOrCreateConfig, defaultConfigPath, type ConfigOverrides, type DaemonConfig } from "./config";
 import { DaemonServer, type DaemonStatus } from "./server";
+import { ExtensionGateway } from "./extension-gateway";
 
 type CliOptions = {
   configPath: string;
@@ -15,12 +16,14 @@ async function main(): Promise<void> {
   const config: DaemonConfig = await loadOrCreateConfig(options.configPath, options.overrides);
   const status: DaemonStatus = { extensionConnected: false, workersReady: 0 };
   const server: DaemonServer = new DaemonServer(config, status);
+  const gateway: ExtensionGateway = new ExtensionGateway(server, config, status);
   await server.listen();
   console.log(`Web2API listening on http://127.0.0.1:${config.port}`);
   console.log(`API key: ${config.api_key}`);
   console.log(`Config: ${options.configPath}`);
   console.log("Extension: disconnected");
   const stop = (): void => {
+    gateway.close();
     void server.close().then((): void => {
       process.exit(0);
     });
