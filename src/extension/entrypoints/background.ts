@@ -24,6 +24,7 @@ let workerReady: boolean = false;
 const workerTabs: Map<string, number> = new Map<string, number>();
 const readyWorkers: Set<string> = new Set<string>();
 const workerCapabilities: Map<string, Capabilities> = new Map<string, Capabilities>();
+const pendingWorkerJobs: Map<string, JobStartMessage> = new Map<string, JobStartMessage>();
 let configuredMaxTabs: number = 0;
 let websocket: WebSocket | undefined;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -55,6 +56,12 @@ export default defineBackground((): void => {
       if (workerId !== undefined) {
         if (message.capabilities !== undefined) {
           workerCapabilities.set(workerId, message.capabilities);
+        }
+        const pendingJob: JobStartMessage | undefined = pendingWorkerJobs.get(workerId);
+        if (pendingJob !== undefined && sender.tab?.id !== undefined) {
+          pendingWorkerJobs.delete(workerId);
+          void browser.tabs.sendMessage(sender.tab.id, pendingJob);
+          return Promise.resolve(undefined);
         }
         readyWorkers.add(workerId);
         workerReady = true;
@@ -97,10 +104,7 @@ async function connectToDaemon(): Promise<void> {
       return;
     }
     if (message.type === "job.start") {
-      const workerTabId: number | undefined = workerTabs.get(message.worker_id);
-      if (workerTabId !== undefined) {
-        void browser.tabs.sendMessage(workerTabId, message);
-      }
+      void dispatchJob(message);
       return;
     }
     if (message.type === "job.cancel") {
@@ -126,6 +130,31 @@ async function connectToDaemon(): Promise<void> {
   socket.addEventListener("error", (): void => {
     socket.close();
   });
+}
+
+async function dispatchJob(message: JobStartMessage): Promise<void> {
+  const workerTabId: number | undefined = workerTabs.get(message.worker_id);
+  if (workerTabId === undefined) {
+    return;
+  }
+  const targetUrl: string = message.payload.conversation_id === undefined
+    ? "https://chatgpt.com/"
+    : `https://chatgpt.com/c/${encodeURIComponent(message.payload.conversation_id)}`;
+  const tab: { url?: string } = await browser.tabs.get(workerTabId);
+  if (tab.url !== undefined && sameChatPage(tab.url, targetUrl)) {
+    await browser.tabs.sendMessage(workerTabId, message);
+    return;
+  }
+  pendingWorkerJobs.set(message.worker_id, message);
+  readyWorkers.delete(message.worker_id);
+  workerReady = readyWorkers.size > 0;
+  await browser.tabs.update(workerTabId, { url: targetUrl });
+}
+
+function sameChatPage(currentUrl: string, targetUrl: string): boolean {
+  const current: URL = new URL(currentUrl);
+  const target: URL = new URL(targetUrl);
+  return current.origin === target.origin && current.pathname === target.pathname;
 }
 
 async function ensureWorkerTabs(maxTabs: number): Promise<void> {

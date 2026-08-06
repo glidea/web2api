@@ -15,11 +15,15 @@ const fixture: string = `<!doctype html><html><head><title>ChatGPT fixture</titl
 <textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>
 <script>
 document.querySelector('[data-testid=send-button]').addEventListener('click', () => {
-  history.pushState({}, '', '/c/fixture-conversation');
+  const composer = document.querySelector('textarea[data-testid=composer]');
+  const startingPath = location.pathname;
+  const currentConversation = startingPath.startsWith('/c/') ? startingPath.slice(3) : undefined;
+  const conversationId = currentConversation || (composer.value === 'hello' ? 'fixture-conversation' : 'fresh-conversation');
+  history.pushState({}, '', '/c/' + conversationId);
   setTimeout(() => {
     const assistant = document.createElement('div');
     assistant.dataset.messageAuthorRole = 'assistant';
-    assistant.textContent = 'hello from fixture';
+    assistant.textContent = composer.value === 'hello' ? 'hello from fixture' : startingPath;
     document.body.append(assistant);
   }, 100);
 });
@@ -102,11 +106,15 @@ test("sends a real extension page job and returns non-streaming response", async
     document.body.innerHTML = '<textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>';
     const button: HTMLButtonElement = document.querySelector("[data-testid=send-button]") as HTMLButtonElement;
     button.addEventListener("click", (): void => {
-      history.pushState({}, "", "/c/fixture-conversation");
+      const composer: HTMLTextAreaElement = document.querySelector("textarea[data-testid=composer]") as HTMLTextAreaElement;
+      const startingPath: string = window.location.pathname;
+      const currentConversation: string | undefined = startingPath.startsWith("/c/") ? startingPath.slice(3) : undefined;
+      const conversationId: string = currentConversation ?? (composer.value === "hello" ? "fixture-conversation" : "fresh-conversation");
+      history.pushState({}, "", `/c/${conversationId}`);
       setTimeout((): void => {
         const assistant: HTMLElement = document.createElement("div");
         assistant.dataset.messageAuthorRole = "assistant";
-        assistant.textContent = "hello from fixture";
+        assistant.textContent = composer.value === "hello" ? "hello from fixture" : startingPath;
         document.body.append(assistant);
       }, 100);
     });
@@ -136,4 +144,22 @@ test("sends a real extension page job and returns non-streaming response", async
   const body: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await response.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
   expect(body.id).toMatch(/^resp_fixture-conversation_/);
   expect(body.output[0]?.content[0]?.text).toBe("hello from fixture");
+
+  const freshResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "chatgpt/default", input: "fresh" })
+  });
+  const freshBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await freshResponse.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
+  expect(freshBody.id).toMatch(/^resp_fresh-conversation_/);
+  expect(freshBody.output[0]?.content[0]?.text).toBe("/");
+
+  const continuedResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "chatgpt/default", input: "continue", previous_response_id: body.id })
+  });
+  const continuedBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await continuedResponse.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
+  expect(continuedBody.id).toMatch(/^resp_fixture-conversation_/);
+  expect(continuedBody.output[0]?.content[0]?.text).toBe("/c/fixture-conversation");
 });

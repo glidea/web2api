@@ -26,9 +26,6 @@ export default defineContentScript({
 
 async function runTextJob(message: JobStartMessage): Promise<void> {
   try {
-    if (message.payload.conversation_id !== undefined) {
-      window.history.pushState({}, "", `/c/${encodeURIComponent(message.payload.conversation_id)}`);
-    }
     if (message.payload.model !== "chatgpt/default") {
       selectModel(document, message.payload.model.slice("chatgpt/".length));
     }
