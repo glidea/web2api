@@ -1,192 +1,240 @@
-# web2api v001 Tasks
+！！！每完成一个任务并且验证通过之后就commit一下！！固定提醒
 
-Every completed task must be verified and committed before the next task starts.
+# Task-001: 建立 WXT 扩展与自动安装 E2E 骨架
 
-## Task-001: WXT Extension and Extension E2E Skeleton
+## 描述
+参考 OPCStack 建立 WXT + MV3 + TypeScript + Svelte 工程。使用 Playwright Chromium 自动加载 unpacked 扩展，并验证 Service Worker、Content Script 和 popup 三个入口真实运行。
 
-Build the WXT, Manifest V3, TypeScript, Svelte, Vitest, and Playwright foundation. The Playwright fixture must load the unpacked extension and verify the service worker, content script, and popup.
-
-Out of scope:
-
-- ChatGPT DOM operations
-- daemon integration
+## 不包含
+- ChatGPT DOM 操作
+- daemon
 - Responses API
 
-Checklist:
+## TODO 清单
+- [x] 1. 建立 pnpm、WXT、TypeScript、Vitest 和 Playwright 配置
+- [x] 2. 创建 background、content script 和 popup 最小入口
+- [x] 3. 创建 Playwright persistent context 扩展 fixture
+- [x] 4. 使用 route fixture 模拟 `chatgpt.com` 页面
 
-- [x] Set up pnpm, WXT, TypeScript, Vitest, and Playwright
-- [x] Add background, content script, and popup entry points
-- [x] Add a persistent Playwright extension fixture
-- [x] Route `chatgpt.com` to a local fixture page
+## 验收测试步骤
+1. 运行 `pnpm test:e2e:extension`
+2. 测试自动构建并加载 MV3 扩展，取得 extension ID
+3. 断言 popup 可打开、Content Script 只注入 `chatgpt.com`、Service Worker 可收发消息
 
-Acceptance:
+---
 
-1. Run `pnpm test:e2e:extension`.
-2. Confirm that the MV3 extension is built and loaded.
-3. Confirm the popup, service worker, and ChatGPT-only content-script injection.
+# Task-002: 验证 ChatGPT DOM Adapter 五个硬点
 
-## Task-002: ChatGPT DOM Adapter Hard Points
+## 描述
+先用 fixture 测试实现单一 ChatGPT Adapter，再用专用持久化 Chromium profile 执行真实网页 smoke test。五个硬点任一失败就回到技术设计，不继续 daemon。
 
-Implement one ChatGPT adapter and verify its five hard points with deterministic fixtures. Real-page smoke testing is separate and must use a dedicated logged-in Chromium profile.
+## 不包含
+- 公共 HTTP API
+- 多标签页 Scheduler
+- OpenAI Responses 格式转换
 
-Checklist:
+## TODO 清单
+- [x] 1. 测试并实现后台 tab 的 DOM 增量读取与完成检测
+- [x] 2. 测试并实现 conversation ID 识别
+- [x] 3. 测试并实现 `File` + `DataTransfer` 图片上传
+- [x] 4. 测试并实现模型与 reasoning effort 扫描和切换
+- [x] 5. 测试并实现最终生成图片字节提取
+- [ ] 6. 记录真实网页 smoke test 结果和失败证据
 
-- [x] Read assistant text incrementally and detect completion
-- [x] Parse the conversation ID
-- [x] Upload images with `File` and `DataTransfer`
-- [x] Discover and select models and reasoning effort
-- [x] Extract final generated-image bytes
-- [ ] Record a successful real-page smoke result and failure evidence
+## 验收测试步骤
+1. 运行 DOM fixture 单元测试并确认全部通过
+2. 在专用 Chromium profile 登录 ChatGPT 后运行 `pnpm test:smoke:chatgpt`
+3. 确认五项能力全部通过；任一失败时任务不得标记完成
 
-Acceptance:
+真实 smoke 当前未标记完成：`pnpm test:smoke:chatgpt` 会自动创建并加载专用 Chromium profile，首次运行仍需测试人员在该窗口手动登录 ChatGPT。测试不会读取日常 Chrome profile。
 
-1. Run `pnpm test` and confirm all adapter tests pass.
-2. Run `pnpm test:smoke:chatgpt` in a dedicated profile.
-3. Do not mark the real smoke item complete until text, continuation, model selection, image input, and image generation all pass.
+---
 
-Current status: the smoke command is implemented, but the real ChatGPT run is still pending a manual login in its dedicated Chromium profile. It never reads the user's daily Chrome profile.
+# Task-003: 实现 Node.js daemon CLI 与健康检查
 
-## Task-003: Node.js Daemon CLI and Health Check
+## 描述
+实现可通过 `npx web2api start` 启动的 Node.js + TypeScript 本地服务。首次启动生成配置和 API key，只提供认证、`/healthz` 与清晰的终端状态。
 
-Provide a Node.js and TypeScript daemon that starts with `npx web2api start`. The first start creates a configuration file and API key. The daemon exposes authentication, `/healthz`, and clear terminal status.
+## 不包含
+- `/v1/responses`
+- Chrome worker 管理
+- 系统后台服务安装
 
-Checklist:
+## TODO 清单
+- [x] 1. 先写 CLI 启动与 HTTP E2E 测试
+- [x] 2. 实现配置文件、固定端口和 API key 生成
+- [x] 3. 实现 `GET /healthz` 与 Bearer 认证中间逻辑
+- [x] 4. 输出 base URL、API key 和扩展连接状态
 
-- [x] Write CLI and HTTP E2E tests first
-- [x] Create and persist the config and API key
-- [x] Implement `GET /healthz` and Bearer authentication
-- [x] Print the base URL, API key, and extension state
+## 验收测试步骤
+1. 在空配置目录运行 `pnpm web2api start`
+2. `curl http://127.0.0.1:3210/healthz` 返回 daemon ready、extension disconnected
+3. 第二次启动复用同一 API key；端口占用时明确失败且不自动换端口
 
-Acceptance:
+---
 
-1. Start with an empty config directory.
-2. Confirm `/healthz` reports `daemon_ready` and `extension_disconnected`.
-3. Restart and confirm the same API key is reused.
-4. Occupy the port and confirm startup fails clearly without choosing another port.
+# Task-004: 建立 daemon 与扩展连接及单 worker 生命周期
 
-## Task-004: Daemon-Extension Gateway and Worker Lifecycle
+## 描述
+实现 Extension WebSocket Gateway、heartbeat 和 typed message schema。扩展维护一个自己创建的 ChatGPT tab，并把 ready、unhealthy 和关闭状态报告给 daemon。
 
-Implement the local WebSocket gateway, heartbeat, typed messages, and one extension-owned ChatGPT worker tab. The extension reports ready, unhealthy, and closed states to the daemon.
+## 不包含
+- Prompt 提交
+- Responses 输出
+- 多标签页并发
 
-Checklist:
+## TODO 清单
+- [x] 1. 先写握手、心跳和断线 E2E 测试
+- [x] 2. 定义共享 WebSocket schema 和协议版本
+- [x] 3. 实现 daemon Extension Gateway
+- [x] 4. 实现 Service Worker 自动连接和单 worker tab 生命周期
+- [x] 5. 在 popup 展示 daemon、worker 和 content script 状态
 
-- [x] Write handshake, heartbeat, and disconnect E2E tests first
-- [x] Define the shared WebSocket protocol
-- [x] Implement the daemon gateway
-- [x] Implement service-worker connection and worker-tab lifecycle
-- [x] Show daemon, worker, and content-script status in the popup
+## 验收测试步骤
+1. 启动 daemon 和 Playwright 扩展 E2E
+2. `/healthz` 从 extension disconnected 变为 connected、worker ready
+3. 关闭 worker tab 后状态变为 unhealthy，并按规则补建空闲 worker
 
-Acceptance:
+---
 
-1. Run `pnpm test:e2e:extension-daemon`.
-2. Confirm `/healthz` changes from disconnected to connected with ready workers.
-3. Close a worker tab and confirm the lifecycle reports the failure and restores capacity when possible.
+# Task-005: 打通非流式文本 Responses 闭环
 
-## Task-005: Non-Streaming Responses Loop
+## 描述
+实现第一条真实业务链路：本地客户端调用 `POST /v1/responses`，扩展在单个 ChatGPT 页面提交文本，daemon 返回非流式 Response JSON。只支持 `chatgpt/default`。
 
-Connect a local `POST /v1/responses` request to one ChatGPT worker and return a non-streaming Responses-compatible JSON result. The default model is `chatgpt/default`.
+## 不包含
+- SSE 流式输出
+- 多轮续接
+- 模型切换
+- 图片
 
-Checklist:
+## TODO 清单
+- [x] 1. 先写 daemon 到假扩展的非流式 E2E 测试
+- [x] 2. 实现 Responses 请求 schema 和标准错误格式
+- [x] 3. 实现单 worker RequestTask 执行链路
+- [x] 4. 实现页面文本提交、最终文本读取和 conversation 绑定
+- [x] 5. 实现最终 Response JSON 投影
 
-- [x] Write daemon-to-fake-extension E2E coverage first
-- [x] Implement request parsing and standard errors
-- [x] Implement one-worker task execution
-- [x] Submit text, read final text, and bind the conversation
-- [x] Project the final Responses JSON
+## 验收测试步骤
+1. 使用官方 OpenAI SDK，把 `base_url` 指向本地 daemon
+2. 发送 `chatgpt/default` 文本请求
+3. 返回包含有效 `response.id` 和最终文本；未登录时返回 `chatgpt_login_required`
 
-Acceptance:
+---
 
-1. Point an OpenAI-compatible client at `http://127.0.0.1:3210/v1`.
-2. Send a `chatgpt/default` request.
-3. Confirm a valid `response.id` and final text.
-4. Confirm logged-out workers return `503 chatgpt_login_required`.
+# Task-006: 支持流式文本与客户端取消
 
-## Task-006: Streaming Text and Client Cancellation
+## 描述
+在同一内部事件流上增加 typed SSE 投影。客户端断开时下发 `job.cancel`，Content Script 点击页面停止按钮并释放 worker。
 
-Project the internal event stream as typed Responses SSE. When the client disconnects, send `job.cancel`, click the page stop button, and release the worker.
+## 不包含
+- 多标签页并发
+- 图片 partial events
+- 请求结果找回
 
-Checklist:
+## TODO 清单
+- [x] 1. 先写 SSE 顺序和断开取消 E2E 测试
+- [x] 2. 实现 assistant 文本非回滚增量提取
+- [x] 3. 实现完整 Responses SSE 生命周期事件
+- [x] 4. 实现 HTTP 断开到页面停止的取消链路
 
-- [x] Write SSE ordering and disconnect-cancellation E2E tests first
-- [x] Extract non-rollback assistant deltas
-- [x] Emit the Responses SSE lifecycle
-- [x] Cancel page generation after HTTP disconnect
+## 验收测试步骤
+1. 发送 `stream: true` 请求并逐帧读取 SSE
+2. 事件顺序符合技术设计，delta 拼接等于最终文本
+3. 中途关闭客户端连接后网页停止生成，worker 回到 ready
 
-Acceptance:
+---
 
-1. Send a request with `stream: true`.
-2. Confirm event order and that concatenated deltas equal the final text.
-3. Disconnect midway and confirm the worker returns to ready.
+# Task-007: 支持多轮会话与可配置标签页并发
 
-## Task-007: Conversation Continuation and Configurable Concurrency
+## 描述
+实现 response ID 编解码、`previous_response_id`、FIFO Scheduler、conversation lock 和固定 worker 池。默认两个标签页，不同对话并行，同一对话串行。
 
-Use encoded response IDs, `previous_response_id`, a FIFO scheduler, conversation locks, and a fixed worker pool. The default pool has two tabs. Different conversations may run in parallel; one conversation is serialized.
+## 不包含
+- 模型与 effort 切换
+- 图片
+- 持久化任务队列
 
-Checklist:
+## TODO 清单
+- [x] 1. 先写多轮、同会话串行和跨会话并行 E2E 测试
+- [x] 2. 实现 response ID 编解码
+- [x] 3. 实现 Scheduler、conversation lock 和 worker lease
+- [x] 4. 实现扩展固定 tab pool 与导航重绑定
+- [x] 5. 支持 `max_tabs` 配置
 
-- [x] Write continuation, same-conversation serialization, and cross-conversation parallelism E2E tests first
-- [x] Encode and decode response IDs
-- [x] Implement the scheduler, locks, and worker leases
-- [x] Navigate and rebind the fixed extension tab pool
-- [x] Support `max_tabs`
+## 验收测试步骤
+1. 使用首轮 `response.id` 发起续接并确认进入同一 ChatGPT conversation
+2. 同时提交 A1、A2、B1，确认 A2 等待 A1，B1 可与 A1 并行
+3. 手动关闭 busy tab，确认当前任务失败且不会在另一 tab 自动重试
 
-Acceptance:
+---
 
-1. Continue a conversation with the first `response.id`.
-2. Submit A1, A2, and B1 concurrently. A2 must wait for A1 while B1 can run in parallel.
-3. Close a busy tab and confirm the active task fails without replaying it on another tab.
+# Task-008: 支持动态模型与思考等级
 
-## Task-008: Dynamic Models and Reasoning Effort
+## 描述
+扩展扫描当前账号真实可见的模型与 effort，daemon 通过 `/v1/models` 暴露动态目录。显式选择无法映射时必须在提交 prompt 前失败。
 
-Scan the models and reasoning effort visible to the current account. Expose them through `/v1/models`. Explicitly unavailable values must fail before prompt submission.
+## 不包含
+- 固定维护 ChatGPT 模型表
+- 自动降级模型或 effort
+- 图片能力
 
-Checklist:
+## TODO 清单
+- [x] 1. 先写 capability 更新和严格映射测试
+- [x] 2. 实现模型与 effort DOM 扫描
+- [x] 3. 实现 `capabilities.updated` 与动态 `/v1/models`
+- [x] 4. 实现提交前模型和 effort 切换
 
-- [x] Write capability-update and strict-mapping tests first
-- [x] Scan the live model and effort menus
-- [x] Emit `capabilities.updated` and expose `/v1/models`
-- [x] Select the requested model and effort before submission
+## 验收测试步骤
+1. `GET /v1/models` 返回 `chatgpt/default` 和页面可见模型
+2. 选择一个可用模型与 effort，确认页面选项实际改变后再提交
+3. 请求不存在的值，确认返回 400 且 ChatGPT 页面没有新增消息
 
-Acceptance:
+---
 
-1. Confirm `/v1/models` includes `chatgpt/default` and visible models.
-2. Select an available model and effort and confirm the page changes before sending.
-3. Request an unavailable value and confirm `400` with no new ChatGPT message.
+# Task-009: 支持图片输入、编辑与生成
 
-## Task-009: Image Input, Editing, and Generation
+## 描述
+实现 HTTP(S) URL 和 base64 data URL 图片输入、多图顺序上传、文本生图、图片编辑及最终 base64 输出。整个链路仍使用真实 ChatGPT 页面控件。
 
-Support HTTP URLs and base64 data URLs, ordered multi-image uploads, text-to-image generation, image editing, and final base64 output through the ChatGPT page controls.
+## 不包含
+- Files API 和 `file_id`
+- partial image events
+- 图片持久化和缓存
 
-Checklist:
+## TODO 清单
+- [x] 1. 先写 URL、data URL、多图和生图 E2E 测试
+- [x] 2. 实现 daemon Image Resolver
+- [x] 3. 实现逐图 WebSocket 传输与附件 ready 确认
+- [x] 4. 实现文本生图和图片编辑提交
+- [x] 5. 实现最终图片字节提取与 `image_generation_call.result`
 
-- [x] Write URL, data URL, multi-image, and generation E2E tests first
-- [x] Implement the daemon image resolver
-- [x] Transfer images over WebSocket and acknowledge attachment readiness
-- [x] Submit image-editing and generation requests
-- [x] Extract final image bytes and project `image_generation_call.result`
+## 验收测试步骤
+1. 分别用 data URL 和 HTTP URL 编辑图片，确认结果可解码
+2. 上传两张图片，确认页面预览和处理顺序与请求一致
+3. 执行纯文本生图；超限图片在提交前失败且不写临时文件
 
-Acceptance:
+---
 
-1. Edit an image from a data URL and an HTTP URL and decode both results.
-2. Upload two images and confirm order is preserved.
-3. Generate an image from text and confirm the final base64 result.
-4. Oversized or invalid images must fail before prompt submission.
+# Task-010: 完成 npm 分发与发布验收
 
-## Task-010: npm Distribution and Release Acceptance
+## 描述
+把 daemon 发布形态收口为 npm CLI，并把 WXT 扩展产物、配置说明和真实网页 smoke test 串成发布检查。后台服务安装和 Node SEA 只做评估，不阻塞首个 npm 版本。
 
-Package the daemon as an npm CLI and connect the extension artifact, configuration instructions, and real-page smoke command into a release check. Background-service installation and Node SEA remain follow-up evaluations.
+## 不包含
+- Chrome Web Store 实际上架审批
+- 自动绕过登录、CAPTCHA 或风控
+- 强制安装系统后台服务
 
-Checklist:
+## TODO 清单
+- [x] 1. 验证 npm pack 后的 `npx web2api start`
+- [x] 2. 生成 WXT Chrome zip 并校验 manifest 权限
+- [x] 3. 完成 popup 连接和 worker 诊断
+- [ ] 4. 在 popup 展示明确的登录和模型诊断
+- [x] 5. 建立一条发布前真实 ChatGPT smoke test 命令
+- [x] 6. 记录后台服务与 Node SEA 的后续决策，不实现未验证方案
 
-- [x] Verify `npx web2api start` from a packed npm tarball
-- [x] Build the Chrome extension zip and validate manifest permissions
-- [x] Show connection and worker diagnostics in the popup
-- [ ] Show explicit login and model diagnostics in the popup
-- [x] Add a release-time real ChatGPT smoke command
-- [x] Record the service-installation and Node SEA follow-up decisions
-
-Acceptance:
-
-1. Install the local tarball from outside the source tree and start the daemon.
-2. Load the extension zip and run text, continuation, concurrency, model, and image checks.
-3. Confirm default logs contain no prompts, responses, images, API keys, or ChatGPT credentials.
+## 验收测试步骤
+1. 在无源码目录安装本地 npm tarball 并启动 daemon
+2. 加载扩展 zip，使用 OpenAI SDK 完成文本、多轮、并发、模型和图片测试
+3. 检查默认日志不包含 prompt、response、图片、API key 或 ChatGPT 凭据
