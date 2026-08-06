@@ -26,8 +26,16 @@ pnpm test:e2e:extension
 pnpm pack:extension
 ```
 
-Real-page smoke testing requires a dedicated logged-in Chromium profile:
+Real-page smoke testing opens a dedicated Chromium profile. Log in to ChatGPT in the opened window on the first run:
 
 ```sh
-WEB2API_CHATGPT_PROFILE=/path/to/profile pnpm test:smoke:chatgpt
+pnpm test:smoke:chatgpt
 ```
+
+Set `WEB2API_CHATGPT_PROFILE` only to override the default `~/.web2api/chatgpt-profile` directory.
+
+## Documentation
+
+- [Technical design](docs/v001/tech-design.md)
+- [Implementation tasks](docs/v001/tasks.md)
+- [Acceptance manual](docs/acceptance.md)

@@ -7,8 +7,6 @@ import type { Readable } from "node:stream";
 
 type DaemonProcess = ChildProcessByStdio<null, Readable, Readable>;
 
-test.skip(process.env["WEB2API_EXTENSION_RESPONSES_TEST"] !== "1", "run through test:e2e:extension-responses");
-
 const port: number = 3210;
 const outputDirectory: string = resolve("src/extension/.output/chrome-mv3");
 const fixture: string = `<!doctype html><html><head><title>ChatGPT fixture</title></head><body>
@@ -36,6 +34,12 @@ let configDirectory: string;
 let apiKey: string;
 let daemonErrors: string = "";
 const pageErrors: string[] = [];
+
+test.beforeAll(({}, testInfo): void => {
+  if (process.env["WEB2API_EXTENSION_RESPONSES_TEST"] !== "1") {
+    testInfo.skip(true, "run through test:e2e:extension-responses");
+  }
+});
 
 async function startDaemon(): Promise<void> {
   configDirectory = await mkdtemp(join(tmpdir(), "web2api-responses-e2e-"));
