@@ -15,6 +15,10 @@ export function parseConversationId(url: string): string | undefined {
   return match?.[1] === undefined ? undefined : decodeURIComponent(match[1]);
 }
 
+export function isChatGPTLoggedIn(documentRoot: Document): boolean {
+  return documentRoot.querySelector('[data-testid="login-button"]') === null;
+}
+
 export class AssistantTextReader {
   private readonly node: HTMLElement;
   private previousText: string = "";
@@ -41,32 +45,73 @@ export function getAssistantMessageCount(documentRoot: Document): number {
   return documentRoot.querySelectorAll("[data-message-author-role=assistant]").length;
 }
 
-export function getCapabilities(documentRoot: Document): ChatGPTCapabilities {
-  const models: string[] = Array.from(documentRoot.querySelectorAll<HTMLElement>("[data-testid=model-selector] [data-model-id]"))
+export async function getCapabilities(documentRoot: Document): Promise<ChatGPTCapabilities> {
+  const openedModelMenu: boolean = await openModelMenu(documentRoot);
+  const legacyModels: string[] = Array.from(documentRoot.querySelectorAll<HTMLElement>("[data-testid=model-selector] [data-model-id]"))
     .map((element: HTMLElement): string => element.dataset.modelId as string);
+  const menuModels: string[] = Array.from(documentRoot.querySelectorAll<HTMLElement>('[role="menuitemradio"]'))
+    .map(modelIdFromMenuItem)
+    .filter((model: string): boolean => model.length > 0 && model !== "chatgpt");
   const reasoningEfforts: string[] = Array.from(documentRoot.querySelectorAll<HTMLElement>("[data-testid=reasoning-selector] [data-effort]"))
     .map((element: HTMLElement): string => element.dataset.effort as string);
-  return { models, reasoningEfforts };
+  if (openedModelMenu) {
+    (documentRoot.querySelector("[data-testid=model-switcher-dropdown-button]") as HTMLElement).click();
+  }
+  return { models: menuModels.length > 0 ? menuModels : legacyModels, reasoningEfforts };
 }
 
-export function selectModel(documentRoot: Document, model: string): void {
-  const selector: HTMLElement = documentRoot.querySelector("[data-testid=model-selector]") as HTMLElement;
-  const option: HTMLElement | null = selector.querySelector(`[data-model-id="${CSS.escape(model)}"]`);
-  if (option === null) {
+export async function selectModel(documentRoot: Document, model: string): Promise<void> {
+  const legacySelector: HTMLElement | null = documentRoot.querySelector("[data-testid=model-selector]");
+  const legacyOption: HTMLElement | null = legacySelector?.querySelector(`[data-model-id="${CSS.escape(model)}"]`) ?? null;
+  if (legacyOption !== null) {
+    legacySelector?.setAttribute("data-selected-model", model);
+    legacyOption.click();
+    return;
+  }
+  await openModelMenu(documentRoot);
+  const options: HTMLElement[] = Array.from(documentRoot.querySelectorAll<HTMLElement>('[role="menuitemradio"]'));
+  const option: HTMLElement | undefined = options.find((element: HTMLElement): boolean => modelIdFromMenuItem(element) === model);
+  if (option === undefined) {
     throw new Error("model_not_available");
   }
-  selector.setAttribute("data-selected-model", model);
+  option.setAttribute("data-selected", "true");
   option.click();
 }
 
-export function selectReasoningEffort(documentRoot: Document, effort: string): void {
-  const selector: HTMLElement = documentRoot.querySelector("[data-testid=reasoning-selector]") as HTMLElement;
-  const option: HTMLElement | null = selector.querySelector(`[data-effort="${CSS.escape(effort)}"]`);
-  if (option === null) {
+export async function selectReasoningEffort(documentRoot: Document, effort: string): Promise<void> {
+  const selector: HTMLElement | null = documentRoot.querySelector("[data-testid=reasoning-selector]");
+  const option: HTMLElement | null = selector?.querySelector(`[data-effort="${CSS.escape(effort)}"]`) ?? null;
+  if (option === null || selector === null) {
     throw new Error("unsupported_reasoning_effort");
   }
   selector.setAttribute("data-selected-effort", effort);
   option.click();
+}
+
+async function openModelMenu(documentRoot: Document): Promise<boolean> {
+  if (documentRoot.querySelector('[role="menuitemradio"]') !== null) {
+    return false;
+  }
+  const button: HTMLElement | null = documentRoot.querySelector("[data-testid=model-switcher-dropdown-button]");
+  if (button === null) {
+    return false;
+  }
+  button.click();
+  const deadline: number = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    if (documentRoot.querySelector('[role="menu"]') !== null) {
+      return true;
+    }
+    await new Promise<void>((resolve): void => {
+      setTimeout(resolve, 25);
+    });
+  }
+  return false;
+}
+
+function modelIdFromMenuItem(element: HTMLElement): string {
+  const label: string = element.querySelector("span")?.textContent?.trim() ?? "";
+  return label.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._-]/g, "");
 }
 
 export async function uploadImages(documentRoot: Document, images: ImagePayload[]): Promise<void> {
@@ -95,7 +140,7 @@ export async function submitPrompt(documentRoot: Document, prompt: string): Prom
   }
   composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
   composer.dispatchEvent(new Event("change", { bubbles: true }));
-  const sendButton: HTMLButtonElement = await waitForElement<HTMLButtonElement>(documentRoot, "button[data-testid=send-button]", 2_000);
+  const sendButton: HTMLButtonElement = await waitForElement<HTMLButtonElement>(documentRoot, "button[data-testid=send-button]", 2_000, "send_button_not_found");
   sendButton.click();
 }
 
@@ -177,7 +222,7 @@ export async function extractGeneratedImage(documentRoot: Document): Promise<Uin
   return new Uint8Array(await response.arrayBuffer());
 }
 
-async function waitForElement<T extends Element>(documentRoot: Document, selector: string, timeout: number): Promise<T> {
+async function waitForElement<T extends Element>(documentRoot: Document, selector: string, timeout: number, errorCode: string): Promise<T> {
   const deadline: number = Date.now() + timeout;
   while (Date.now() < deadline) {
     const element: T | null = documentRoot.querySelector<T>(selector);
@@ -188,7 +233,7 @@ async function waitForElement<T extends Element>(documentRoot: Document, selecto
       setTimeout(resolve, 25);
     });
   }
-  throw new Error("send_button_not_found");
+  throw new Error(errorCode);
 }
 
 function decodeDataUrl(source: string): Uint8Array {

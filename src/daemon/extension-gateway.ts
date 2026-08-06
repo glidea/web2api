@@ -18,9 +18,9 @@ export type TextJobResult = {
 };
 
 export class GatewayError extends Error {
-  public readonly code: "extension_unavailable" | "chatgpt_adapter_error";
+  public readonly code: "extension_unavailable" | "chatgpt_adapter_error" | "chatgpt_login_required";
 
-  public constructor(code: "extension_unavailable" | "chatgpt_adapter_error", message: string) {
+  public constructor(code: "extension_unavailable" | "chatgpt_adapter_error" | "chatgpt_login_required", message: string) {
     super(message);
     this.code = code;
   }
@@ -284,7 +284,7 @@ export class ExtensionGateway {
         this.finishJob(message.request_id);
         return;
       case "job.failed":
-        this.failJob(message.request_id, new GatewayError("chatgpt_adapter_error", message.message));
+        this.failJob(message.request_id, new GatewayError(message.code === "chatgpt_login_required" ? message.code : "chatgpt_adapter_error", message.message));
         return;
     }
   }

@@ -153,6 +153,29 @@ describe("non-streaming responses", (): void => {
     expect(await response.json()).toMatchObject({ error: { code: "reasoning_effort_not_available" } });
   });
 
+  it("returns chatgpt_login_required when the page session is logged out", async (): Promise<void> => {
+    const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "hello" })
+    });
+    const job: DaemonToExtensionMessage = await readDaemonMessage();
+    if (job.type !== "job.start") {
+      throw new Error(`expected job.start, got ${job.type}`);
+    }
+    socket.send(JSON.stringify({
+      version: 1,
+      type: "job.failed",
+      request_id: job.request_id,
+      worker_id: job.worker_id,
+      code: "chatgpt_login_required",
+      message: "ChatGPT login is required"
+    } satisfies ExtensionToDaemonMessage));
+    const response: Response = await responsePromise;
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: "chatgpt_login_required" } });
+  });
+
   it("routes previous_response_id to the original conversation", async (): Promise<void> => {
     const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
       method: "POST",

@@ -1,17 +1,13 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { cancelGeneration, extractGeneratedImage, getAssistantMessageCount, getCapabilities, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, type ImagePayload } from "../lib/chatgpt-adapter";
+import { cancelGeneration, extractGeneratedImage, getAssistantMessageCount, getCapabilities, isChatGPTLoggedIn, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, type ImagePayload } from "../lib/chatgpt-adapter";
 import type { Capabilities, JobCancelMessage, JobStartMessage, ExtensionToDaemonMessage } from "../../shared/protocol";
 
 export default defineContentScript({
   matches: ["https://chatgpt.com/*", "https://chat.openai.com/*"],
   main(): void {
     document.documentElement.dataset.web2apiContentScript = "ready";
-    void browser.runtime.sendMessage({
-      type: "web2api:content-ready",
-      url: window.location.href,
-      capabilities: toProtocolCapabilities(getCapabilities(document))
-    });
+    void reportContentReady();
     browser.runtime.onMessage.addListener((message: unknown): Promise<void> => {
       if (isJobStartMessage(message)) {
         void runTextJob(message);
@@ -26,11 +22,14 @@ export default defineContentScript({
 
 async function runTextJob(message: JobStartMessage): Promise<void> {
   try {
+    if (!isChatGPTLoggedIn(document)) {
+      throw new Error("chatgpt_login_required");
+    }
     if (message.payload.model !== "chatgpt/default") {
-      selectModel(document, message.payload.model.slice("chatgpt/".length));
+      await selectModel(document, message.payload.model.slice("chatgpt/".length));
     }
     if (message.payload.reasoning_effort !== undefined) {
-      selectReasoningEffort(document, message.payload.reasoning_effort);
+      await selectReasoningEffort(document, message.payload.reasoning_effort);
     }
     if (message.payload.images !== undefined) {
       await uploadImages(document, message.payload.images.map(toImagePayload));
@@ -56,9 +55,19 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
     const completed: ExtensionToDaemonMessage = { version: 1, type: "job.completed", request_id: message.request_id, worker_id: message.worker_id };
     await browser.runtime.sendMessage(completed);
   } catch (error: unknown) {
-    const failure: ExtensionToDaemonMessage = { version: 1, type: "job.failed", request_id: message.request_id, worker_id: message.worker_id, code: "chatgpt_adapter_error", message: error instanceof Error ? error.message : String(error) };
+    const errorMessage: string = error instanceof Error ? error.message : String(error);
+    const code: string = errorMessage === "chatgpt_login_required" ? errorMessage : "chatgpt_adapter_error";
+    const failure: ExtensionToDaemonMessage = { version: 1, type: "job.failed", request_id: message.request_id, worker_id: message.worker_id, code, message: errorMessage };
     await browser.runtime.sendMessage(failure);
   }
+}
+
+async function reportContentReady(): Promise<void> {
+  await browser.runtime.sendMessage({
+    type: "web2api:content-ready",
+    url: window.location.href,
+    capabilities: toProtocolCapabilities(await getCapabilities(document))
+  });
 }
 
 function toProtocolCapabilities(capabilities: { models: string[]; reasoningEfforts: string[] }): Capabilities {

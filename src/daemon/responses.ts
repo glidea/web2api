@@ -212,7 +212,7 @@ export class ResponsesService {
       return;
     }
     if (error instanceof GatewayError) {
-      const statusCode: number = error.code === "extension_unavailable" ? 503 : 502;
+      const statusCode: number = error.code === "chatgpt_adapter_error" ? 502 : 503;
       this.sendJson(response, statusCode, { error: { message: error.message, type: "server_error", code: error.code } });
       return;
     }

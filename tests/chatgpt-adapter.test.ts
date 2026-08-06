@@ -3,6 +3,7 @@ import {
   AssistantTextReader,
   extractGeneratedImage,
   getCapabilities,
+  isChatGPTLoggedIn,
   parseConversationId,
   selectModel,
   selectReasoningEffort,
@@ -19,6 +20,13 @@ function createPage(markup: string): void {
 }
 
 describe("ChatGPT adapter", (): void => {
+  it("detects a logged-out ChatGPT page", (): void => {
+    createPage('<button data-testid="login-button">Log in</button>');
+    expect(isChatGPTLoggedIn(document)).toBe(false);
+    createPage('<div id="prompt-textarea" contenteditable="true"></div>');
+    expect(isChatGPTLoggedIn(document)).toBe(true);
+  });
+
   it("reads a conversation id from a ChatGPT URL", (): void => {
     expect(parseConversationId("https://chatgpt.com/c/conv-123")) .toBe("conv-123");
     expect(parseConversationId("https://chatgpt.com/")) .toBeUndefined();
@@ -48,24 +56,25 @@ describe("ChatGPT adapter", (): void => {
     expect(input.files?.[1]?.name).toBe("second.jpg");
   });
 
-  it("scans capabilities and rejects unsupported model or effort", (): void => {
+  it("scans and selects models from the real ChatGPT menu structure", async (): Promise<void> => {
     createPage(`
-      <button data-testid="model-selector">
-        <span data-model-id="gpt-4o">GPT-4o</span>
-        <span data-model-id="o3">o3</span>
-      </button>
+      <button data-testid="model-switcher-dropdown-button">ChatGPT</button>
+      <div role="menu">
+        <div role="menuitemradio"><span>GPT-5.2 Instant</span><div>Fast responses</div></div>
+        <div role="menuitemradio"><span>GPT-5.2 Thinking</span><div>Deeper reasoning</div></div>
+      </div>
       <button data-testid="reasoning-selector">
         <span data-effort="low">Low</span>
         <span data-effort="high">High</span>
       </button>
     `);
-    expect(getCapabilities(document)).toEqual({ models: ["gpt-4o", "o3"], reasoningEfforts: ["low", "high"] });
-    selectModel(document, "o3");
-    expect(document.querySelector("[data-testid=model-selector]")?.getAttribute("data-selected-model")).toBe("o3");
-    selectReasoningEffort(document, "high");
+    expect(await getCapabilities(document)).toEqual({ models: ["gpt-5.2-instant", "gpt-5.2-thinking"], reasoningEfforts: ["low", "high"] });
+    await selectModel(document, "gpt-5.2-thinking");
+    expect(document.querySelector('[role=menuitemradio]:nth-child(2)')?.getAttribute("data-selected")).toBe("true");
+    await selectReasoningEffort(document, "high");
     expect(document.querySelector("[data-testid=reasoning-selector]")?.getAttribute("data-selected-effort")).toBe("high");
-    expect((): void => selectModel(document, "unknown")).toThrowError("model_not_available");
-    expect((): void => selectReasoningEffort(document, "max")).toThrowError("unsupported_reasoning_effort");
+    await expect(selectModel(document, "unknown")).rejects.toThrowError("model_not_available");
+    await expect(selectReasoningEffort(document, "max")).rejects.toThrowError("unsupported_reasoning_effort");
   });
 
   it("submits prompt through the page composer", async (): Promise<void> => {

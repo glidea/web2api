@@ -35,6 +35,7 @@ let userDataDirectory: string;
 let configDirectory: string;
 let apiKey: string;
 let daemonErrors: string = "";
+const pageErrors: string[] = [];
 
 async function startDaemon(): Promise<void> {
   configDirectory = await mkdtemp(join(tmpdir(), "web2api-responses-e2e-"));
@@ -75,6 +76,11 @@ test.beforeAll(async (): Promise<void> => {
     headless: false,
     args: [`--disable-extensions-except=${outputDirectory}`, `--load-extension=${outputDirectory}`]
   });
+  context.on("page", (openedPage: Page): void => {
+    openedPage.on("pageerror", (error: Error): void => {
+      pageErrors.push(error.message);
+    });
+  });
   await context.route("https://chatgpt.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: fixture });
   });
@@ -90,35 +96,37 @@ test.afterAll(async (): Promise<void> => {
 
 test("sends a real extension page job and returns non-streaming response", async (): Promise<void> => {
   const pageDeadline: number = Date.now() + 10_000;
-  let workerPage: Page | undefined;
-  while (Date.now() < pageDeadline && workerPage === undefined) {
-    workerPage = context.pages().find((page: Page): boolean => page.url().startsWith("https://chatgpt.com/"));
-    if (workerPage === undefined) {
+  let workerPages: Page[] = [];
+  while (Date.now() < pageDeadline && workerPages.length < 2) {
+    workerPages = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/"));
+    if (workerPages.length < 2) {
       await new Promise<void>((resolvePromise): void => {
         setTimeout(resolvePromise, 100);
       });
     }
   }
-  if (workerPage === undefined) {
-    throw new Error("worker tab was not created");
+  if (workerPages.length < 2) {
+    throw new Error("worker tabs were not created");
   }
-  await workerPage.evaluate((): void => {
-    document.body.innerHTML = '<textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>';
-    const button: HTMLButtonElement = document.querySelector("[data-testid=send-button]") as HTMLButtonElement;
-    button.addEventListener("click", (): void => {
-      const composer: HTMLTextAreaElement = document.querySelector("textarea[data-testid=composer]") as HTMLTextAreaElement;
-      const startingPath: string = window.location.pathname;
-      const currentConversation: string | undefined = startingPath.startsWith("/c/") ? startingPath.slice(3) : undefined;
-      const conversationId: string = currentConversation ?? (composer.value === "hello" ? "fixture-conversation" : "fresh-conversation");
-      history.pushState({}, "", `/c/${conversationId}`);
-      setTimeout((): void => {
-        const assistant: HTMLElement = document.createElement("div");
-        assistant.dataset.messageAuthorRole = "assistant";
-        assistant.textContent = composer.value === "hello" ? "hello from fixture" : startingPath;
-        document.body.append(assistant);
-      }, 100);
+  for (const workerPage of workerPages) {
+    await workerPage.evaluate((): void => {
+      document.body.innerHTML = '<textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>';
+      const button: HTMLButtonElement = document.querySelector("[data-testid=send-button]") as HTMLButtonElement;
+      button.addEventListener("click", (): void => {
+        const composer: HTMLTextAreaElement = document.querySelector("textarea[data-testid=composer]") as HTMLTextAreaElement;
+        const startingPath: string = window.location.pathname;
+        const currentConversation: string | undefined = startingPath.startsWith("/c/") ? startingPath.slice(3) : undefined;
+        const conversationId: string = currentConversation ?? (composer.value === "hello" ? "fixture-conversation" : "fresh-conversation");
+        history.pushState({}, "", `/c/${conversationId}`);
+        setTimeout((): void => {
+          const assistant: HTMLElement = document.createElement("div");
+          assistant.dataset.messageAuthorRole = "assistant";
+          assistant.textContent = composer.value === "hello" ? "hello from fixture" : startingPath;
+          document.body.append(assistant);
+        }, 100);
+      });
     });
-  });
+  }
   const deadline: number = Date.now() + 10_000;
   let ready: boolean = false;
   while (Date.now() < deadline) {
@@ -132,7 +140,7 @@ test("sends a real extension page job and returns non-streaming response", async
       setTimeout(resolvePromise, 100);
     });
   }
-  expect(ready).toBe(true);
+  expect(ready, pageErrors.join("\n")).toBe(true);
   const response: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
