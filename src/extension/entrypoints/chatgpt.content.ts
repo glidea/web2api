@@ -38,7 +38,7 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
     if (message.payload.images !== undefined) {
       await uploadImages(document, message.payload.images.map(toImagePayload));
     }
-    submitPrompt(document, message.payload.input);
+    await submitPrompt(document, message.payload.input);
     const conversationId: string = await waitForConversationId();
     const bound: ExtensionToDaemonMessage = { version: 1, type: "job.conversation_bound", request_id: message.request_id, worker_id: message.worker_id, conversation_id: conversationId };
     await browser.runtime.sendMessage(bound);

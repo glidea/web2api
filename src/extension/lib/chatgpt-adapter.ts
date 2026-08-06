@@ -66,7 +66,10 @@ export function selectReasoningEffort(documentRoot: Document, effort: string): v
 }
 
 export async function uploadImages(documentRoot: Document, images: ImagePayload[]): Promise<void> {
-  const input: HTMLInputElement = documentRoot.querySelector("input[data-testid=upload-input]") as HTMLInputElement;
+  const input: HTMLInputElement | null = documentRoot.querySelector("input[data-testid=upload-photos-input], input[data-testid=upload-input]");
+  if (input === null) {
+    throw new Error("upload_input_not_found");
+  }
   const transfer: DataTransfer = new DataTransfer();
   for (const image of images) {
     const blob: Blob = new Blob([image.bytes.buffer as ArrayBuffer], { type: image.mediaType });
@@ -76,12 +79,19 @@ export async function uploadImages(documentRoot: Document, images: ImagePayload[
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-export function submitPrompt(documentRoot: Document, prompt: string): void {
-  const composer: HTMLTextAreaElement = documentRoot.querySelector("textarea[data-testid=composer]") as HTMLTextAreaElement;
-  composer.value = prompt;
-  composer.dispatchEvent(new Event("input", { bubbles: true }));
+export async function submitPrompt(documentRoot: Document, prompt: string): Promise<void> {
+  const composer: HTMLElement | null = documentRoot.querySelector("#prompt-textarea, textarea[data-testid=composer]");
+  if (composer === null) {
+    throw new Error("composer_not_found");
+  }
+  if (composer instanceof HTMLTextAreaElement) {
+    composer.value = prompt;
+  } else {
+    composer.textContent = prompt;
+  }
+  composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
   composer.dispatchEvent(new Event("change", { bubbles: true }));
-  const sendButton: HTMLButtonElement = documentRoot.querySelector("button[data-testid=send-button]") as HTMLButtonElement;
+  const sendButton: HTMLButtonElement = await waitForElement<HTMLButtonElement>(documentRoot, "button[data-testid=send-button]", 2_000);
   sendButton.click();
 }
 
@@ -95,8 +105,8 @@ export async function waitForFinalAssistantText(documentRoot: Document): Promise
   let stableReads: number = 0;
   const deadline: number = Date.now() + 120_000;
   while (Date.now() < deadline) {
-    const assistant: HTMLElement | null = documentRoot.querySelector("[data-message-author-role=assistant]");
-    const currentText: string = assistant?.textContent ?? "";
+    const assistants: HTMLElement[] = Array.from(documentRoot.querySelectorAll<HTMLElement>("[data-message-author-role=assistant]"));
+    const currentText: string = assistants.at(-1)?.textContent ?? "";
     if (currentText.length > 0 && currentText === stableText) {
       stableReads += 1;
     } else {
@@ -115,8 +125,9 @@ export async function waitForFinalAssistantText(documentRoot: Document): Promise
 }
 
 export async function extractGeneratedImage(documentRoot: Document): Promise<Uint8Array | undefined> {
-  const image: HTMLImageElement | null = documentRoot.querySelector("img[data-generated-image]");
-  if (image === null) {
+  const images: HTMLImageElement[] = Array.from(documentRoot.querySelectorAll<HTMLImageElement>("img[data-generated-image], [data-message-author-role=assistant] img[src]"));
+  const image: HTMLImageElement | undefined = images.at(-1);
+  if (image === undefined) {
     return undefined;
   }
   const source: string = image.currentSrc || image.src;
@@ -125,6 +136,20 @@ export async function extractGeneratedImage(documentRoot: Document): Promise<Uin
   }
   const response: Response = await fetch(source);
   return new Uint8Array(await response.arrayBuffer());
+}
+
+async function waitForElement<T extends Element>(documentRoot: Document, selector: string, timeout: number): Promise<T> {
+  const deadline: number = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const element: T | null = documentRoot.querySelector<T>(selector);
+    if (element !== null) {
+      return element;
+    }
+    await new Promise<void>((resolve): void => {
+      setTimeout(resolve, 25);
+    });
+  }
+  throw new Error("send_button_not_found");
 }
 
 function decodeDataUrl(source: string): Uint8Array {

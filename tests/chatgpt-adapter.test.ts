@@ -9,6 +9,7 @@ import {
   submitPrompt,
   cancelGeneration,
   uploadImages,
+  waitForFinalAssistantText,
   type ImagePayload
 } from "../src/extension/lib/chatgpt-adapter";
 
@@ -36,10 +37,10 @@ describe("ChatGPT adapter", (): void => {
   });
 
   it("uploads image files in request order", async (): Promise<void> => {
-    createPage('<input data-testid="upload-input" type="file" multiple />');
+    createPage('<input data-testid="upload-photos-input" type="file" multiple />');
     const first: ImagePayload = { bytes: new Uint8Array([1, 2]), mediaType: "image/png", name: "first.png" };
     const second: ImagePayload = { bytes: new Uint8Array([3, 4]), mediaType: "image/jpeg", name: "second.jpg" };
-    const input: HTMLInputElement = document.querySelector("[data-testid=upload-input]") as HTMLInputElement;
+    const input: HTMLInputElement = document.querySelector("[data-testid=upload-photos-input]") as HTMLInputElement;
     await uploadImages(document, [first, second]);
     expect(input.files).toHaveLength(2);
     expect(input.files?.[0]?.name).toBe("first.png");
@@ -66,15 +67,21 @@ describe("ChatGPT adapter", (): void => {
     expect((): void => selectReasoningEffort(document, "max")).toThrowError("unsupported_reasoning_effort");
   });
 
-  it("submits prompt through the page composer", (): void => {
-    createPage('<textarea data-testid="composer"></textarea><button data-testid="send-button"></button>');
+  it("submits prompt through the page composer", async (): Promise<void> => {
+    createPage('<div id="prompt-textarea" contenteditable="true"></div><button data-testid="send-button"></button>');
     const button: HTMLButtonElement = document.querySelector("[data-testid=send-button]") as HTMLButtonElement;
+    const composer: HTMLElement = document.querySelector("#prompt-textarea") as HTMLElement;
+    let inputEvents: number = 0;
     let clicks: number = 0;
+    composer.addEventListener("input", (): void => {
+      inputEvents += 1;
+    });
     button.addEventListener("click", (): void => {
       clicks += 1;
     });
-    submitPrompt(document, "hello");
-    expect((document.querySelector("[data-testid=composer]") as HTMLTextAreaElement).value).toBe("hello");
+    await submitPrompt(document, "hello");
+    expect(composer.textContent).toBe("hello");
+    expect(inputEvents).toBe(1);
     expect(clicks).toBe(1);
   });
 
@@ -89,8 +96,16 @@ describe("ChatGPT adapter", (): void => {
     expect(clicks).toBe(1);
   });
 
+  it("reads the newest assistant message", async (): Promise<void> => {
+    createPage(`
+      <div data-message-author-role="assistant">old answer</div>
+      <div data-message-author-role="assistant">new answer</div>
+    `);
+    await expect(waitForFinalAssistantText(document)).resolves.toBe("new answer");
+  });
+
   it("returns bytes from the final generated image", async (): Promise<void> => {
-    createPage('<img data-generated-image src="data:image/png;base64,AQID" />');
+    createPage('<div data-message-author-role="assistant"><img src="data:image/png;base64,AQID" /></div>');
     const image: Uint8Array | undefined = await extractGeneratedImage(document);
     expect(image).toEqual(new Uint8Array([1, 2, 3]));
   });
