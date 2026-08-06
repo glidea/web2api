@@ -37,6 +37,10 @@ export class AssistantTextReader {
   }
 }
 
+export function getAssistantMessageCount(documentRoot: Document): number {
+  return documentRoot.querySelectorAll("[data-message-author-role=assistant]").length;
+}
+
 export function getCapabilities(documentRoot: Document): ChatGPTCapabilities {
   const models: string[] = Array.from(documentRoot.querySelectorAll<HTMLElement>("[data-testid=model-selector] [data-model-id]"))
     .map((element: HTMLElement): string => element.dataset.modelId as string);
@@ -119,6 +123,41 @@ export async function waitForFinalAssistantText(documentRoot: Document): Promise
     }
     await new Promise<void>((resolve): void => {
       setTimeout(resolve, 250);
+    });
+  }
+  throw new Error("assistant_text_timeout");
+}
+
+export async function streamAssistantText(documentRoot: Document, previousMessageCount: number, onDelta: (delta: string) => void | Promise<void>): Promise<string> {
+  let reader: AssistantTextReader | undefined;
+  let assistant: HTMLElement | undefined;
+  let stableText: string = "";
+  let stableReads: number = 0;
+  const deadline: number = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const assistants: HTMLElement[] = Array.from(documentRoot.querySelectorAll<HTMLElement>("[data-message-author-role=assistant]"));
+    const currentAssistant: HTMLElement | undefined = assistants[previousMessageCount];
+    if (currentAssistant !== undefined && currentAssistant !== assistant) {
+      assistant = currentAssistant;
+      reader = new AssistantTextReader(currentAssistant);
+    }
+    const delta: string = reader?.readDelta() ?? "";
+    if (delta.length > 0) {
+      await onDelta(delta);
+    }
+    const currentText: string = assistant?.textContent ?? "";
+    if (currentText.length > 0 && currentText === stableText) {
+      stableReads += 1;
+    } else {
+      stableText = currentText;
+      stableReads = 0;
+    }
+    const stopButton: HTMLElement | null = documentRoot.querySelector("[data-testid=stop-button]");
+    if (stableText.length > 0 && stableReads >= 2 && stopButton === null) {
+      return stableText;
+    }
+    await new Promise<void>((resolve): void => {
+      setTimeout(resolve, 100);
     });
   }
   throw new Error("assistant_text_timeout");

@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { cancelGeneration, extractGeneratedImage, getCapabilities, parseConversationId, selectModel, selectReasoningEffort, submitPrompt, uploadImages, waitForFinalAssistantText, type ImagePayload } from "../lib/chatgpt-adapter";
+import { cancelGeneration, extractGeneratedImage, getAssistantMessageCount, getCapabilities, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, type ImagePayload } from "../lib/chatgpt-adapter";
 import type { Capabilities, JobCancelMessage, JobStartMessage, ExtensionToDaemonMessage } from "../../shared/protocol";
 
 export default defineContentScript({
@@ -38,13 +38,17 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
     if (message.payload.images !== undefined) {
       await uploadImages(document, message.payload.images.map(toImagePayload));
     }
+    const previousMessageCount: number = getAssistantMessageCount(document);
     await submitPrompt(document, message.payload.input);
     const conversationId: string = await waitForConversationId();
     const bound: ExtensionToDaemonMessage = { version: 1, type: "job.conversation_bound", request_id: message.request_id, worker_id: message.worker_id, conversation_id: conversationId };
     await browser.runtime.sendMessage(bound);
-    const text: string = await waitForFinalAssistantText(document);
-    const delta: ExtensionToDaemonMessage = { version: 1, type: "job.output_text.delta", request_id: message.request_id, worker_id: message.worker_id, sequence: 1, delta: text };
-    await browser.runtime.sendMessage(delta);
+    let sequence: number = 0;
+    await streamAssistantText(document, previousMessageCount, async (textDelta: string): Promise<void> => {
+      sequence += 1;
+      const delta: ExtensionToDaemonMessage = { version: 1, type: "job.output_text.delta", request_id: message.request_id, worker_id: message.worker_id, sequence, delta: textDelta };
+      await browser.runtime.sendMessage(delta);
+    });
     if (message.payload.generate_image === true) {
       const image: Uint8Array | undefined = await extractGeneratedImage(document);
       if (image !== undefined) {

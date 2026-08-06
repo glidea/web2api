@@ -13,11 +13,15 @@ const port: number = 3210;
 const outputDirectory: string = resolve("src/extension/.output/chrome-mv3");
 const fixture: string = `<!doctype html><html><head><title>ChatGPT fixture</title></head><body>
 <textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>
-<div data-message-author-role="assistant"></div>
 <script>
 document.querySelector('[data-testid=send-button]').addEventListener('click', () => {
   history.pushState({}, '', '/c/fixture-conversation');
-  setTimeout(() => { document.querySelector('[data-message-author-role=assistant]').textContent = 'hello from fixture'; }, 100);
+  setTimeout(() => {
+    const assistant = document.createElement('div');
+    assistant.dataset.messageAuthorRole = 'assistant';
+    assistant.textContent = 'hello from fixture';
+    document.body.append(assistant);
+  }, 100);
 });
 </script></body></html>`;
 
@@ -95,13 +99,15 @@ test("sends a real extension page job and returns non-streaming response", async
     throw new Error("worker tab was not created");
   }
   await workerPage.evaluate((): void => {
-    document.body.innerHTML = '<textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button><div data-message-author-role="assistant"></div>';
+    document.body.innerHTML = '<textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>';
     const button: HTMLButtonElement = document.querySelector("[data-testid=send-button]") as HTMLButtonElement;
     button.addEventListener("click", (): void => {
       history.pushState({}, "", "/c/fixture-conversation");
       setTimeout((): void => {
-        const assistant: HTMLElement = document.querySelector("[data-message-author-role=assistant]") as HTMLElement;
+        const assistant: HTMLElement = document.createElement("div");
+        assistant.dataset.messageAuthorRole = "assistant";
         assistant.textContent = "hello from fixture";
+        document.body.append(assistant);
       }, 100);
     });
   });

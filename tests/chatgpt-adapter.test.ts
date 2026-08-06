@@ -6,6 +6,7 @@ import {
   parseConversationId,
   selectModel,
   selectReasoningEffort,
+  streamAssistantText,
   submitPrompt,
   cancelGeneration,
   uploadImages,
@@ -102,6 +103,27 @@ describe("ChatGPT adapter", (): void => {
       <div data-message-author-role="assistant">new answer</div>
     `);
     await expect(waitForFinalAssistantText(document)).resolves.toBe("new answer");
+  });
+
+  it("streams only the assistant message created after submission", async (): Promise<void> => {
+    createPage('<div data-message-author-role="assistant">old answer</div>');
+    const deltas: string[] = [];
+    setTimeout((): void => {
+      const answer: HTMLDivElement = document.createElement("div");
+      answer.dataset.messageAuthorRole = "assistant";
+      answer.textContent = "Hel";
+      document.body.append(answer);
+    }, 10);
+    setTimeout((): void => {
+      const answers: HTMLElement[] = Array.from(document.querySelectorAll<HTMLElement>("[data-message-author-role=assistant]"));
+      const answer: HTMLElement = answers.at(-1) as HTMLElement;
+      answer.textContent = "Hello";
+    }, 80);
+    const text: string = await streamAssistantText(document, 1, (delta: string): void => {
+      deltas.push(delta);
+    });
+    expect(text).toBe("Hello");
+    expect(deltas.join("")).toBe("Hello");
   });
 
   it("returns bytes from the final generated image", async (): Promise<void> => {
