@@ -7,15 +7,32 @@ export type DaemonConfig = {
   api_key: string;
   port: number;
   max_tabs: number;
+  extension_id?: string;
 };
 
 export type ConfigOverrides = {
   port?: number;
   maxTabs?: number;
+  extensionId?: string;
 };
 
+export function defaultDataDirectory(): string {
+  const override: string | undefined = process.env["WEB2API_DATA_DIR"];
+  if (override !== undefined) {
+    return override;
+  }
+  if (process.platform === "win32") {
+    const localAppData: string | undefined = process.env["LOCALAPPDATA"];
+    if (localAppData === undefined) {
+      throw new Error("LOCALAPPDATA is required on Windows");
+    }
+    return join(localAppData, "Glidea", "Web2API");
+  }
+  return join(homedir(), ".web2api");
+}
+
 export function defaultConfigPath(): string {
-  return join(homedir(), ".web2api", "config.json");
+  return join(defaultDataDirectory(), "config.json");
 }
 
 export async function loadOrCreateConfig(path: string, overrides: ConfigOverrides): Promise<DaemonConfig> {
@@ -40,6 +57,9 @@ export async function loadOrCreateConfig(path: string, overrides: ConfigOverride
   if (overrides.maxTabs !== undefined) {
     config.max_tabs = overrides.maxTabs;
   }
+  if (overrides.extensionId !== undefined) {
+    config.extension_id = overrides.extensionId;
+  }
 
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
@@ -56,10 +76,15 @@ function parseConfig(content: string): DaemonConfig {
   if (typeof record["api_key"] !== "string" || typeof record["port"] !== "number" || typeof record["max_tabs"] !== "number") {
     throw new Error("invalid daemon config");
   }
+  const extensionId: unknown = record["extension_id"];
+  if (extensionId !== undefined && (typeof extensionId !== "string" || !/^[a-p]{32}$/.test(extensionId))) {
+    throw new Error("invalid daemon config");
+  }
   return {
     api_key: record["api_key"],
     port: record["port"],
-    max_tabs: record["max_tabs"]
+    max_tabs: record["max_tabs"],
+    ...(typeof extensionId === "string" ? { extension_id: extensionId } : {})
   };
 }
 

@@ -14,6 +14,7 @@ export type ModelList = {
 
 export type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
 export type ResponsesHandler = (request: IncomingMessage, response: ServerResponse) => void;
+export type StopHandler = () => void;
 
 export class DaemonServer {
   private readonly config: DaemonConfig;
@@ -21,6 +22,7 @@ export class DaemonServer {
   private readonly httpServer: Server;
   private responsesHandler: ResponsesHandler | undefined;
   private modelsProvider: (() => ModelList) | undefined;
+  private stopHandler: StopHandler | undefined;
 
   public constructor(config: DaemonConfig, status: DaemonStatus) {
     this.config = config;
@@ -70,6 +72,10 @@ export class DaemonServer {
     this.modelsProvider = provider;
   }
 
+  public setStopHandler(handler: StopHandler): void {
+    this.stopHandler = handler;
+  }
+
   private handleRequest(request: IncomingMessage, response: ServerResponse): void {
     const method: string = request.method ?? "GET";
     const path: string = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -101,6 +107,17 @@ export class DaemonServer {
         return;
       }
       this.responsesHandler(request, response);
+      return;
+    }
+    if (method === "POST" && path === "/_web2api/control/stop") {
+      if (!this.isAuthorized(request)) {
+        this.sendError(response, 401, "invalid_api_key", "Invalid API key");
+        return;
+      }
+      this.sendJson(response, 200, { status: "stopping" });
+      queueMicrotask((): void => {
+        this.stopHandler?.();
+      });
       return;
     }
     this.sendJson(response, 404, { error: { message: "Not found", type: "invalid_request_error", code: "not_found" } });

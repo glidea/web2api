@@ -65,6 +65,10 @@ test("opens popup and reports content script readiness", async (): Promise<void>
   const popup: Page = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await expect(popup.getByRole("heading", { name: "Web2API" })).toBeVisible();
+  await expect(popup.getByText("Local companion required")).toBeVisible();
+  await expect(popup.getByText(`npx -y glidea-web2api@latest install --extension-id ${extensionId}`)).toBeVisible();
   await expect(popup.getByText("Content script ready")).toBeVisible();
+  await popup.getByRole("button", { name: "Check again" }).click();
+  await expect(popup.getByText("Local companion required")).toBeVisible();
   await popup.close();
 });

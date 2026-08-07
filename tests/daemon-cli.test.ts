@@ -95,4 +95,16 @@ describe("daemon CLI", (): void => {
     const [code]: [number | null] = await once(second, "exit") as [number | null];
     expect(code).not.toBe(0);
   });
+
+  it("stops through the authenticated control endpoint", async (): Promise<void> => {
+    const exited: Promise<unknown[]> = once(daemon, "exit");
+    const response: Response = await fetch(`http://127.0.0.1:${port}/_web2api/control/stop`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` }
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "stopping" });
+    await exited;
+    daemon = await startDaemon();
+  });
 });

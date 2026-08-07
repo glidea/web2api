@@ -24,13 +24,13 @@
 2. Go 单文件 daemon，由安装器注册为用户级后台服务
 3. Chrome 扩展通过 Native Messaging 按需拉起本地进程
 
-推荐方案：Node.js + TypeScript 本地服务，通过 npm/npx 启动
+推荐方案：Node.js + TypeScript daemon，由一次性 npm 命令安装 Native Messaging Host，日常生命周期由扩展 popup 管理
 
-理由：第一批用户是需要把网页能力接给本地 SDK、CLI 和 Agent 的开发者，Node.js 环境覆盖率高，`npx web2api start` 不需要额外安装器。daemon、WXT 扩展和内部协议统一使用 TypeScript，可以直接共享协议类型和运行时 schema，避免 Go 与 TypeScript 之间再维护一套代码生成。Native Messaging 仍不适合作为 HTTP API 的唯一生命周期入口。
+理由：第一批用户本机需要 Node.js，但不应要求每次使用时手工打开终端并保持进程前台运行。popup 给出包含自身 Extension ID 的一次性命令：`npx -y glidea-web2api@latest install --extension-id <id>`。命令把已打包的 daemon 运行时和启动脚本复制到稳定目录，并注册 Chrome Native Messaging Host。此后扩展可以启动、停止、重启和配置 daemon。
 
-易用性不能只看 npm。npm 方案要求机器已有 Node.js，这是明确成本。第一期以 npm/npx 为主，前台运行便于看到连接和错误；稳定后再提供 `web2api service install`。无 Node 用户的单文件分发放到后续，候选方案是 Node SEA，但它目前仍处于 Active development，不作为第一期依赖。
+这里不安装系统服务，不要求管理员权限，也不需要 macOS 开发者签名、Windows 代码签名或桌面商店审核。代价是机器必须保留 Node.js，而且 Node 可执行文件的绝对路径在安装时固定；Node 被版本管理器删除或迁移后，用户需要重新执行安装命令。无 Node 用户的单文件分发继续作为后续方案，不阻塞第一期。
 
-结论：第一期使用 Node.js + TypeScript daemon，支持 `npx web2api start` 和全局安装后的 `web2api start`。不使用 Go，不在第一期实现系统后台服务安装。
+结论：第一期使用 Node.js + TypeScript daemon。一次性 npm 命令负责本地注册，popup 负责日常控制；`glidea-web2api start` 仅作为手工回退路径。不使用 Go，不安装系统后台服务。
 
 ### 1.3 已确认决策
 
@@ -40,15 +40,15 @@
 
 候选方案：
 
-1. 扩展主动建立到 daemon 的本地 WebSocket 长连接
-2. 扩展通过 Chrome Native Messaging 连接 daemon
-3. 扩展轮询 daemon 的本地 HTTP 接口
+1. 所有通信只走本地 WebSocket
+2. 所有通信只走 Native Messaging
+3. Native Messaging 控制面 + HTTP/WebSocket 数据面
 
-推荐方案：扩展主动建立到 daemon 的本地 WebSocket 长连接
+推荐方案：Native Messaging 控制面 + HTTP/WebSocket 数据面
 
-理由：daemon 不能主动寻址某个 Chrome 扩展。由扩展连接 `ws://127.0.0.1:<port>/extension` 后，daemon 可以在同一连接上下发请求和接收流式响应。相比 Native Messaging，它不需要为不同操作系统注册 native host manifest；相比 HTTP 轮询，它直接支持双向流式传输。
+理由：Native Messaging 是 Chrome 官方提供的扩展到本机进程机制，适合低频、小消息的启动、停止、状态查询和配置，但它使用 stdio 帧协议，不适合作为 OpenAI 客户端可直接访问的 HTTP API，也不适合承载图片和流式响应。daemon 启动后，扩展主动连接 `ws://127.0.0.1:<port>/extension`，继续用同一连接收发任务和流式事件。本地客户端始终访问 loopback HTTP。
 
-结论：扩展主动连接 daemon 的本地 WebSocket，不使用 Native Messaging。
+结论：Native Messaging 只负责 daemon 生命周期和配置；Responses API 走 HTTP，daemon 与扩展的任务数据走 WebSocket。控制面故障不会改变数据协议，手工启动 daemon 时扩展仍可通过 WebSocket 连接。
 
 ### 1.4 已确认决策
 
@@ -139,7 +139,7 @@
 
 推荐方案：daemon 首次启动自动生成 API token，所有 API 请求必须使用 Bearer token
 
-理由：OpenAI SDK 本身使用 `Authorization: Bearer <token>`，因此不会增加协议适配。自动生成避免用户设计凭据，CLI 可以展示 `base_url` 和 token。daemon 只监听 loopback；扩展 WebSocket 另外校验固定的 Chrome 扩展 Origin。API token 不下发给扩展，避免进入权限更大的浏览器环境。
+理由：OpenAI SDK 本身使用 `Authorization: Bearer <token>`，因此不会增加协议适配。自动生成避免用户设计凭据，popup 可以展示 `base_url` 和 token。daemon 只监听 loopback；安装命令把 Extension ID 写入配置，WebSocket 只接受该固定 Origin。API token 只进入 Extension Service Worker 和 popup，不下发给 Content Script。
 
 结论：daemon 自动生成并持久化 API token，所有本地 API 请求必须通过 Bearer token 认证。
 
@@ -300,6 +300,7 @@ flowchart LR
     Client["本地进程<br/>OpenAI SDK / curl / Agent"]
 
     subgraph Host["用户电脑"]
+        NativeHost["Native Messaging Host<br/>启动、停止、配置"]
         Daemon["Node.js daemon<br/>127.0.0.1:3210"]
 
         subgraph Chrome["用户真实 Chrome"]
@@ -312,6 +313,8 @@ flowchart LR
     ChatGPT["chatgpt.com"]
 
     Client -->|"Bearer + HTTP / SSE"| Daemon
+    Extension -->|"Native Messaging 控制面"| NativeHost
+    NativeHost -->|"进程生命周期"| Daemon
     Extension -->|"ws://127.0.0.1:3210/extension"| Daemon
     Extension -->|"chrome.tabs + runtime.Port"| Tab1
     Extension -->|"chrome.tabs + runtime.Port"| Tab2
@@ -319,9 +322,9 @@ flowchart LR
     Tab2 <-->|"网页自身 HTTPS 请求"| ChatGPT
 ```
 
-系统只有两个需要安装或运行的产物：npm daemon 和 Chrome 扩展。daemon 是本地 API 入口，扩展是浏览器执行代理。两者都不持有 ChatGPT Cookie；Cookie 只留在 Chrome 的真实页面中。
+用户只接触两个产物：Chrome 扩展和 npm 包。npm 安装命令在用户目录复制一个 daemon bundle、一个 Native Host 启动脚本并写入 Chrome Native Messaging manifest。Native Host 是控制入口，daemon 是本地 API 入口，扩展是浏览器执行代理。三者都不持有 ChatGPT Cookie；Cookie 只留在 Chrome 的真实页面中。
 
-daemon 无法主动找到某个 Chrome 扩展，因此必须由 Extension Service Worker 主动连接固定地址 `ws://127.0.0.1:3210/extension`。本地客户端只连接 daemon，不直接连接扩展。
+Native Host 不承载业务请求。daemon 无法主动找到某个 Chrome 扩展，因此仍由 Extension Service Worker 主动连接固定地址 `ws://127.0.0.1:3210/extension`。本地客户端只连接 daemon，不直接连接扩展或 Native Host。
 
 每个 worker 都是一个真实的 `chatgpt.com` 标签页。标签页可以在后台，但不是 iframe、伪 DOM 或 headless 页面。用户会在 Chrome 标签栏看到它们。
 
@@ -337,6 +340,12 @@ flowchart TB
         Projector["Response Projector<br/>内部事件 -> SSE / JSON"]
         Images["Image Resolver<br/>URL 下载 / data URL 解码"]
         Config["Config<br/>port、token、max_tabs"]
+    end
+
+    subgraph Bootstrap["Native Bootstrap"]
+        Native["Native Host<br/>stdio framing"]
+        Controller["Daemon Controller<br/>ensure、status、stop、configure"]
+        Native --> Controller
     end
 
     subgraph Extension["WXT Chrome Extension"]
@@ -363,6 +372,8 @@ flowchart TB
     CS1 --> Adapter
     CS2 --> Adapter
     Popup --> SW
+    Popup --> Native
+    Controller --> Config
 ```
 
 请求只沿一个方向流动：`HTTP API -> Translator -> Scheduler -> Gateway -> Service Worker -> Content Script -> ChatGPT Adapter`。输出事件沿原路反向返回。禁止 Content Script 直接知道 Responses API，也禁止 HTTP API 直接知道 CSS selector。
@@ -371,7 +382,9 @@ flowchart TB
 
 | 组件 | 职责 | 不负责 |
 | --- | --- | --- |
-| CLI | 启动服务、打印连接信息、读取配置 | 接管 Chrome 或保存对话 |
+| CLI Installer | 复制 bundle、写 Native Host manifest、卸载注册 | 安装系统服务或修改 Chrome 登录状态 |
+| Native Host | 接收 popup 控制命令，启动、停止和配置 daemon | 承载 Responses 请求和流式数据 |
+| CLI | 手工启动服务、打印连接信息、读取配置 | 接管 Chrome 或保存对话 |
 | HTTP API | Bearer 认证、请求解析、HTTP/SSE 连接生命周期 | 页面控制和任务调度 |
 | Responses Translator | 校验兼容子集，生成 `RequestTask` | 猜测或静默忽略参数 |
 | Scheduler | FIFO、conversation lock、worker lease | 创建 Chrome tab |
@@ -382,7 +395,7 @@ flowchart TB
 | Worker Pool | 按 `max_tabs` 创建、复用、关闭专用标签页 | 解析 Responses 请求 |
 | Content Script | 在指定标签页执行一个任务并回传事件 | 跨标签页调度 |
 | ChatGPT Adapter | 页面检测、模型选择、上传、提交、增量读取 | daemon 协议和 API 兼容转换 |
-| Popup | 展示 daemon、登录、worker、模型状态 | 承担任务执行 |
+| Popup | 安装引导、daemon 控制、API key 与并发标签页设置 | 承担任务执行 |
 
 ### 3.4 单一状态源
 
@@ -399,12 +412,15 @@ flowchart TB
 ```mermaid
 flowchart LR
     Shared["src/shared<br/>协议类型、schema、错误码"]
+    Native["src/native<br/>安装、stdio 协议、daemon 控制"]
     Daemon["src/daemon<br/>CLI、HTTP、Scheduler、Gateway"]
     Adapter["src/extension/lib/chatgpt-adapter.ts"]
     Entrypoints["src/extension/entrypoints<br/>background、content、popup"]
     E2E["tests/e2e<br/>假扩展、Chromium 扩展测试"]
 
     Daemon --> Shared
+    Native --> Shared
+    Daemon --> Native
     Entrypoints --> Shared
     Entrypoints --> Adapter
     E2E --> Daemon
@@ -417,7 +433,12 @@ flowchart LR
 src/
   shared/
     protocol.ts          # daemon <-> extension message schema
+    native-protocol.ts   # extension <-> Native Host control schema
     responses.ts         # supported Responses request/response schema
+  native/
+    installer.ts         # copy runtime and register Native Host
+    messaging.ts         # Chrome stdio framing
+    controller.ts        # daemon lifecycle commands
   daemon/
     cli.ts               # start/status/config commands
     server.ts            # node:http routes and connection lifecycle
@@ -449,12 +470,13 @@ tests/
 - 持久化：普通 JSON 配置文件，不引入数据库
 - 开发与发布：pnpm 管理工作区，npm 发布 CLI 包，WXT 构建扩展 zip
 
-首次运行使用 `npx web2api start`。固定默认端口为 `3210`，端口被占用时直接报错，不自动漂移，否则扩展和客户端无法可靠发现服务。CLI 启动后打印 `base_url`、API key 所在位置和扩展连接状态。API key 只由 CLI 展示，不能下发给 Content Script。
+首次安装使用 popup 生成的 `npx -y glidea-web2api@latest install --extension-id <id>`。固定默认端口为 `3210`，端口被占用时直接报错，不自动漂移，否则扩展和客户端无法可靠发现服务。API key 通过 Native Messaging 只返回给扩展 Service Worker，再由 popup 展示；不能下发给 Content Script。
 
 ### 3.7 生命周期边界
 
-- daemon 可以在 Chrome 未运行时启动，`/healthz` 此时返回 `extension_connected: false`
-- 扩展可以在 daemon 未运行时启动，并按退避策略重连固定 WebSocket 地址
+- daemon 可以在 Chrome 未运行时手工启动，`/healthz` 此时返回 `extension_connected: false`
+- 扩展启动时先通过 Native Host 执行 `ensure`，再连接固定 WebSocket 地址
+- Native Host 缺失时 popup 展示一次性安装命令；手工 daemon 已运行时扩展仍可回退连接 WebSocket
 - Extension Service Worker 被 Chrome 回收后，下一次事件唤醒时重建 WebSocket 和 Content Script Port
 - daemon 退出时所有 queued 和 in-flight 任务失败，不持久化、不重放
 - worker tab 关闭只影响绑定它的 worker；busy worker 的任务立即失败
@@ -468,36 +490,41 @@ tests/
 
 ```text
 1. 从 Chrome Web Store 安装扩展
-2. 运行 npx web2api start
-3. 确认 popup 显示 Connected / Logged in / 2 workers ready
-4. 把 CLI 输出的 base_url 和 API key 配给本地客户端
-5. 调用 POST /v1/responses
+2. 打开 popup，复制并运行一次性安装命令
+3. 回到 popup 点击 Check again
+4. 确认 Connected / Logged in / 2 workers ready
+5. 从 popup 复制 Base URL 和 API key 给本地客户端
+6. 调用 POST /v1/responses
 ```
 
-首次启动时 daemon 创建 `~/.web2api/config.json`，生成 `wb2_` 前缀的随机 API key，然后绑定 `127.0.0.1:3210`。CLI 必须直接打印可执行示例：
+安装命令执行以下确定动作：
 
 ```text
-Web2API listening on http://127.0.0.1:3210/v1
-Chrome extension: connected
-Workers: 2 ready
-API key: wb2_...
+1. 把 glidea-web2api.cjs 复制到 ~/.web2api/runtime/
+2. 写入 ~/.web2api/bin/glidea-web2api-host
+3. 写入 Chrome NativeMessagingHosts/dev.glidea.web2api.json
+4. manifest 只允许发起安装的 Extension ID 连接
 ```
 
-开发阶段扩展通过 `chrome://extensions` 加载 WXT 构建目录；正式分发使用 Chrome Web Store。npm 安装不能替用户静默安装 Chrome 扩展，这两个安装动作必须明确分开。
+popup 首次调用 `ensure` 时，Native Host 创建 `~/.web2api/config.json`，生成 `wb2_` 前缀 API key，后台启动 daemon 并等待 `127.0.0.1:3210` 可用。npm 安装不能替用户静默安装 Chrome 扩展，这两个安装动作必须明确分开。
 
 ### 4.2 daemon 与扩展启动握手
 
 ```mermaid
 sequenceDiagram
     participant U as "用户"
+    participant N as "Native Host"
     participant D as "Node.js daemon"
     participant E as "Extension Service Worker"
     participant T as "ChatGPT Worker Tab"
     participant P as "Content Script"
 
-    U->>D: "npx web2api start"
-    D->>D: "读取配置或生成 API key"
+    U->>E: "打开 popup"
+    E->>N: "ensure"
+    N->>N: "读取配置或生成 API key"
+    N->>D: "后台启动 bundle"
     D->>D: "监听 127.0.0.1:3210"
+    N-->>E: "running + base_url + api_key + max_tabs"
     E->>D: "GET ws://127.0.0.1:3210/extension"
     D->>D: "校验 chrome-extension:// Origin"
     E->>D: "extension.hello(version, chrome_version)"
@@ -506,7 +533,7 @@ sequenceDiagram
     T->>P: "注入 chatgpt.content.js"
     P-->>E: "worker.ready(worker_id, capabilities)"
     E-->>D: "worker.ready + capabilities.updated"
-    D-->>U: "输出 connected / workers ready"
+    E-->>U: "popup 展示 connected / workers ready"
 ```
 
 扩展每 20 秒发送一次 heartbeat。daemon 在两个 heartbeat 周期内没有收到消息，就关闭旧连接并失败所有 in-flight 任务。扩展断线期间 daemon 仍提供 `/healthz`，但新的 `/v1/responses` 立即返回 `503 extension_unavailable`，不能无限排队。
@@ -990,7 +1017,7 @@ loopback HTTP 和本地 WebSocket 开销不是主要时延。真正需要控制�
 - daemon 只绑定 `127.0.0.1` 和 `::1`
 - 所有 `/v1/*` 请求必须使用 daemon 生成的 Bearer token
 - token 文件只允许当前操作系统用户读取
-- WebSocket 校验固定 extension Origin，主要防止普通网页直接连接
+- Native Host manifest 和 WebSocket 都校验安装时记录的固定 Extension ID
 - 默认日志不记录 prompt、response、图片 base64、Bearer token 和 ChatGPT 页面内容
 - URL 图片只允许 HTTP(S)，禁止 `file:`、`data:` 以外的自定义 scheme；私有网段图片 URL 默认拒绝，读取本地图片应使用 data URL
 - 图片字节只保留到请求完成或失败，不落盘
@@ -1118,7 +1145,7 @@ DOM fixture 不能证明真实 ChatGPT 可用。每次发布必须使用测试�
 
 ### Phase 4：交付
 
-- npm 包与 `npx web2api start`
+- `glidea-web2api` npm 包、一次性 Native Host 安装与 popup 生命周期管理
 - 扩展 popup 展示连接、登录、worker 和模型状态
 - 可选的用户级后台服务安装
 - 评估 Node SEA 单文件分发，不阻塞 npm 版本

@@ -53,7 +53,7 @@
 # Task-003: 实现 Node.js daemon CLI 与健康检查
 
 ## 描述
-实现可通过 `npx web2api start` 启动的 Node.js + TypeScript 本地服务。首次启动生成配置和 API key，只提供认证、`/healthz` 与清晰的终端状态。
+实现可通过 `glidea-web2api start` 启动的 Node.js + TypeScript 本地服务。首次启动生成配置和 API key，只提供认证、`/healthz` 与清晰的终端状态。
 
 ## 不包含
 - `/v1/responses`
@@ -67,7 +67,7 @@
 - [x] 4. 输出 base URL、API key 和扩展连接状态
 
 ## 验收测试步骤
-1. 在空配置目录运行 `pnpm web2api start`
+1. 在空配置目录运行 `node bin/glidea-web2api.mjs start`
 2. `curl http://127.0.0.1:3210/healthz` 返回 daemon ready、extension disconnected
 3. 第二次启动复用同一 API key；端口占用时明确失败且不自动换端口
 
@@ -219,22 +219,27 @@
 # Task-010: 完成 npm 分发与发布验收
 
 ## 描述
-把 daemon 发布形态收口为 npm CLI，并把 WXT 扩展产物、配置说明和真实网页 smoke test 串成发布检查。后台服务安装和 Node SEA 只做评估，不阻塞首个 npm 版本。
+把 daemon 发布形态收口为 `glidea-web2api` npm CLI。通过一次性命令安装 Native Messaging Host，后续由 popup 管理 daemon、API key 和并发标签页。系统后台服务和 Node SEA 只做评估，不阻塞首个 npm 版本。
 
 ## 不包含
 - Chrome Web Store 实际上架审批
 - 自动绕过登录、CAPTCHA 或风控
 - 强制安装系统后台服务
+- 无 Node.js 的单文件分发
 
 ## TODO 清单
-- [x] 1. 验证 npm pack 后的 `npx web2api start`
+- [x] 1. 验证 npm pack 后的 `glidea-web2api start`
 - [x] 2. 生成 WXT Chrome zip 并校验 manifest 权限
-- [x] 3. 完成 popup 连接和 worker 诊断
-- [ ] 4. 在 popup 展示明确的登录和模型诊断
-- [x] 5. 建立一条发布前真实 ChatGPT smoke test 命令
-- [x] 6. 记录后台服务与 Node SEA 的后续决策，不实现未验证方案
+- [x] 3. 实现 Native Messaging stdio 协议和 daemon controller
+- [x] 4. 实现 macOS、Linux 和 Windows 用户级 Native Host 安装逻辑
+- [x] 5. 验证复制后的 bundle 可脱离 npm 临时目录启动 daemon
+- [x] 6. 完成 popup 启停、重启、API key 和并发标签页管理
+- [ ] 7. 在 popup 展示明确的登录和模型诊断
+- [x] 8. 建立一条发布前真实 ChatGPT smoke test 命令
+- [x] 9. 记录后台服务与 Node SEA 的后续决策，不实现未验证方案
 
 ## 验收测试步骤
-1. 在无源码目录安装本地 npm tarball 并启动 daemon
-2. 加载扩展 zip，使用 OpenAI SDK 完成文本、多轮、并发、模型和图片测试
-3. 检查默认日志不包含 prompt、response、图片、API key 或 ChatGPT 凭据
+1. 在无源码目录安装本地 npm tarball，执行一次性 Native Host 安装并由 popup 启动 daemon
+2. 加载扩展 zip，确认 popup 可管理 daemon、复制连接信息并修改并发标签页
+3. 使用 OpenAI SDK 完成文本、多轮、并发、模型和图片测试
+4. 检查默认日志不包含 prompt、response、图片、API key 或 ChatGPT 凭据

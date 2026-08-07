@@ -1,19 +1,19 @@
 {
-  "name": "web2api",
+  "name": "glidea-web2api",
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "web2api": "./bin/web2api.mjs"
+    "glidea-web2api": "./bin/glidea-web2api.mjs"
   },
   "files": [
-    "bin",
-    "src/daemon",
-    "src/shared"
+    "bin/glidea-web2api.mjs",
+    "dist/glidea-web2api.cjs"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "build:daemon": "esbuild src/daemon/cli.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/glidea-web2api.cjs",
     "prepare:extension": "wxt prepare src/extension",
     "build:extension": "wxt build src/extension --mv3",
     "test:e2e:extension": "pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/extension.spec.ts",
@@ -21,27 +21,26 @@
     "test:e2e:extension-responses": "pnpm build:extension && WEB2API_EXTENSION_RESPONSES_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-responses.spec.ts",
     "test:smoke:chatgpt": "pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/chatgpt-smoke.spec.ts",
     "pack:extension": "pnpm build:extension && mkdir -p dist && rm -f dist/web2api-extension.zip && cd src/extension/.output && zip -qr ../../../dist/web2api-extension.zip chrome-mv3",
+    "prepack": "pnpm build:daemon",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "tsx": "^4.20.5",
-    "ws": "^8.18.3"
-  },
   "devDependencies": {
+    "@lucide/svelte": "^1.29.0",
     "@playwright/test": "^1.55.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.0",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.18.1",
+    "@wxt-dev/module-svelte": "^2.0.5",
+    "esbuild": "^0.28.1",
     "happy-dom": "^18.0.1",
-    "tsx": "^4.20.5",
     "svelte": "^5.54.0",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.1.2",
-    "wxt": "^0.20.27",
-    "@wxt-dev/module-svelte": "^2.0.5",
     "ws": "^8.18.3",
+    "wxt": "^0.20.27",
     "zod": "^4.1.12"
   },
   "packageManager": "pnpm@10.18.3+sha512.bbd16e6d7286fd7e01f6b3c0b3c932cda2965c06a908328f74663f10a9aea51f1129eea615134bf992831b009eabe167ecb7008b597f40ff9bc75946aadfb08d"

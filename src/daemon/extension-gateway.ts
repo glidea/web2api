@@ -332,6 +332,9 @@ export class ExtensionGateway {
   }
 
   private isAllowedOrigin(origin: string | undefined): boolean {
-    return origin?.startsWith("chrome-extension://") === true;
+    if (this.config.extension_id === undefined) {
+      return origin?.startsWith("chrome-extension://") === true;
+    }
+    return origin === `chrome-extension://${this.config.extension_id}`;
   }
 }

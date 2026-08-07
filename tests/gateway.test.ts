@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -13,6 +13,7 @@ import type { DaemonToExtensionMessage, ExtensionToDaemonMessage } from "../src/
 type DaemonProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 const port: number = 3211;
+const extensionId: string = "abcdefghijklmnopabcdefghijklmnop";
 const projectDirectory: string = process.cwd();
 let configDirectory: string;
 let configPath: string;
@@ -69,6 +70,7 @@ describe("extension gateway", (): void => {
   beforeAll(async (): Promise<void> => {
     configDirectory = await mkdtemp(join(tmpdir(), "web2api-gateway-"));
     configPath = join(configDirectory, "config.json");
+    await writeFile(configPath, `${JSON.stringify({ api_key: "wb2_gateway", port, max_tabs: 2, extension_id: extensionId }, null, 2)}\n`, "utf8");
     await startDaemon();
   });
 
@@ -78,7 +80,7 @@ describe("extension gateway", (): void => {
   });
 
   it("performs handshake, heartbeat and worker health lifecycle", async (): Promise<void> => {
-    const socket: WebSocket = new WebSocket(`ws://127.0.0.1:${port}/extension`, { origin: "chrome-extension://test" });
+    const socket: WebSocket = new WebSocket(`ws://127.0.0.1:${port}/extension`, { origin: `chrome-extension://${extensionId}` });
     await once(socket, "open");
     const hello: ExtensionToDaemonMessage = {
       version: 1,
@@ -105,5 +107,14 @@ describe("extension gateway", (): void => {
     socket.close();
     await once(socket, "close");
     await waitForHealth(false, 0);
+  });
+
+  it("rejects a different extension origin", async (): Promise<void> => {
+    const socket: WebSocket = new WebSocket(`ws://127.0.0.1:${port}/extension`, { origin: "chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba" });
+    const result: "open" | "rejected" = await new Promise<"open" | "rejected">((resolve): void => {
+      socket.once("open", (): void => resolve("open"));
+      socket.once("error", (): void => resolve("rejected"));
+    });
+    expect(result).toBe("rejected");
   });
 });
