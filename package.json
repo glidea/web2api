@@ -1,9 +1,24 @@
 {
   "name": "glidea-web2api",
   "version": "0.1.0",
+  "description": "Expose ChatGPT web sessions as a local OpenAI-compatible Responses API.",
   "type": "module",
+  "keywords": [
+    "chatgpt",
+    "openai",
+    "responses-api",
+    "web2api"
+  ],
+  "homepage": "https://github.com/glidea/web2api#readme",
+  "bugs": {
+    "url": "https://github.com/glidea/web2api/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glidea/web2api.git"
+  },
   "bin": {
-    "glidea-web2api": "./bin/glidea-web2api.mjs"
+    "glidea-web2api": "bin/glidea-web2api.mjs"
   },
   "files": [
     "bin/glidea-web2api.mjs",
