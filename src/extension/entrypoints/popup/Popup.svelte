@@ -149,6 +149,15 @@
       <p class="content-state">Content script {status.contentScriptReady ? "ready" : "unavailable"}</p>
     </section>
   {/if}
+
+  {#if status !== undefined}
+    <section class="diagnostics">
+      <h2>ChatGPT</h2>
+      <p>ChatGPT {status.chatGptLoggedIn === undefined ? "Checking" : status.chatGptLoggedIn ? "Logged in" : "Sign-in required"}</p>
+      <p>Models {status.models.length === 0 ? "Unavailable" : status.models.join(", ")}</p>
+      <p>Reasoning {status.reasoningEfforts.length === 0 ? "Unavailable" : status.reasoningEfforts.join(", ")}</p>
+    </section>
+  {/if}
 </main>
 
 <style>
@@ -201,6 +210,7 @@
   .subtitle,
   .section-heading p,
   .install > p,
+  .diagnostics p,
   .content-state,
   .loading {
     margin-top: 3px;

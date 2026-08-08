@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { cancelGeneration, extractGeneratedImage, getAssistantMessageCount, getCapabilities, isChatGPTLoggedIn, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, type ImagePayload } from "../lib/chatgpt-adapter";
+import { cancelGeneration, getAssistantMessageCount, getCapabilities, isChatGPTLoggedIn, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, waitForGeneratedImage, type ImagePayload } from "../lib/chatgpt-adapter";
 import type { Capabilities, JobCancelMessage, JobStartMessage, ExtensionToDaemonMessage } from "../../shared/protocol";
 
 export default defineContentScript({
@@ -39,18 +39,17 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
     const conversationId: string = await waitForConversationId();
     const bound: ExtensionToDaemonMessage = { version: 1, type: "job.conversation_bound", request_id: message.request_id, worker_id: message.worker_id, conversation_id: conversationId };
     await browser.runtime.sendMessage(bound);
-    let sequence: number = 0;
-    await streamAssistantText(document, previousMessageCount, async (textDelta: string): Promise<void> => {
-      sequence += 1;
-      const delta: ExtensionToDaemonMessage = { version: 1, type: "job.output_text.delta", request_id: message.request_id, worker_id: message.worker_id, sequence, delta: textDelta };
-      await browser.runtime.sendMessage(delta);
-    });
     if (message.payload.generate_image === true) {
-      const image: Uint8Array | undefined = await extractGeneratedImage(document);
-      if (image !== undefined) {
-        const completedImage: ExtensionToDaemonMessage = { version: 1, type: "job.image.completed", request_id: message.request_id, worker_id: message.worker_id, media_type: "image/png", data: encodeBase64(image) };
-        await browser.runtime.sendMessage(completedImage);
-      }
+      const image: Uint8Array = await waitForGeneratedImage(document, previousMessageCount);
+      const completedImage: ExtensionToDaemonMessage = { version: 1, type: "job.image.completed", request_id: message.request_id, worker_id: message.worker_id, media_type: "image/png", data: encodeBase64(image) };
+      await browser.runtime.sendMessage(completedImage);
+    } else {
+      let sequence: number = 0;
+      await streamAssistantText(document, previousMessageCount, async (textDelta: string): Promise<void> => {
+        sequence += 1;
+        const delta: ExtensionToDaemonMessage = { version: 1, type: "job.output_text.delta", request_id: message.request_id, worker_id: message.worker_id, sequence, delta: textDelta };
+        await browser.runtime.sendMessage(delta);
+      });
     }
     const completed: ExtensionToDaemonMessage = { version: 1, type: "job.completed", request_id: message.request_id, worker_id: message.worker_id };
     await browser.runtime.sendMessage(completed);
@@ -66,7 +65,15 @@ async function reportContentReady(): Promise<void> {
   await browser.runtime.sendMessage({
     type: "web2api:content-ready",
     url: window.location.href,
-    capabilities: toProtocolCapabilities(await getCapabilities(document))
+    loggedIn: isChatGPTLoggedIn(document),
+    capabilities: { models: ["chatgpt/default"], reasoning_efforts: [] }
+  });
+  const capabilities: { models: string[]; reasoningEfforts: string[] } = await getCapabilities(document);
+  await browser.runtime.sendMessage({
+    type: "web2api:content-ready",
+    url: window.location.href,
+    loggedIn: isChatGPTLoggedIn(document),
+    capabilities: toProtocolCapabilities(capabilities)
   });
 }
 

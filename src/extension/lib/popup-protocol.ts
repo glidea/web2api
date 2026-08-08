@@ -5,6 +5,9 @@ export type PopupStatus = {
   daemonConnected: boolean;
   workerReady: boolean;
   contentScriptReady: boolean;
+  chatGptLoggedIn?: boolean;
+  models: string[];
+  reasoningEfforts: string[];
   baseUrl?: string;
   apiKey?: string;
   maxTabs?: number;

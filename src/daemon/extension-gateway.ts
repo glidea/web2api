@@ -117,7 +117,7 @@ export class ExtensionGateway {
       pendingJob.workerId = workerId;
       pendingJob.timeout = setTimeout((): void => {
         this.failJob(requestId, new GatewayError("chatgpt_adapter_error", "ChatGPT job timed out"));
-      }, 120_000);
+      }, generateImage ? 300_000 : 120_000);
       const payload: JobStartMessage["payload"] = {
         model,
         input,

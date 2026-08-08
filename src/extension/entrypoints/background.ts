@@ -7,6 +7,7 @@ import type { PopupRequest, PopupStatus } from "../lib/popup-protocol";
 type ContentReadyMessage = {
   type: "web2api:content-ready";
   url: string;
+  loggedIn: boolean;
   capabilities?: Capabilities;
 };
 
@@ -21,6 +22,8 @@ let configuredMaxTabs: number = 0;
 let shouldReconnect: boolean = true;
 let contentScriptReady: boolean = false;
 let workerReady: boolean = false;
+let chatGptLoggedIn: boolean | undefined;
+let chatGptCapabilities: Capabilities = { models: [], reasoning_efforts: [] };
 const workerTabs: Map<string, number> = new Map<string, number>();
 const readyWorkers: Set<string> = new Set<string>();
 const workerCapabilities: Map<string, Capabilities> = new Map<string, Capabilities>();
@@ -148,6 +151,16 @@ function applyNativeStatus(status: NativeHostStatus): void {
 }
 
 function popupStatus(): PopupStatus {
+  const models: Set<string> = new Set<string>(chatGptCapabilities.models);
+  const reasoningEfforts: Set<string> = new Set<string>(chatGptCapabilities.reasoning_efforts);
+  for (const capabilities of workerCapabilities.values()) {
+    for (const model of capabilities.models) {
+      models.add(model);
+    }
+    for (const effort of capabilities.reasoning_efforts) {
+      reasoningEfforts.add(effort);
+    }
+  }
   return {
     nativeHostInstalled,
     nativeHostError,
@@ -155,6 +168,9 @@ function popupStatus(): PopupStatus {
     daemonConnected,
     workerReady,
     contentScriptReady,
+    chatGptLoggedIn,
+    models: Array.from(models),
+    reasoningEfforts: Array.from(reasoningEfforts),
     baseUrl: nativeHostInstalled ? `${daemonBaseUrl}/v1` : undefined,
     apiKey,
     maxTabs: nativeHostInstalled ? configuredMaxTabs : undefined,
@@ -251,6 +267,10 @@ function clearHeartbeat(): void {
 
 async function handleContentReady(message: ContentReadyMessage, tabId: number | undefined): Promise<undefined> {
   contentScriptReady = true;
+  chatGptLoggedIn = message.loggedIn;
+  if (message.capabilities !== undefined) {
+    chatGptCapabilities = message.capabilities;
+  }
   const workerId: string | undefined = findWorkerId(tabId);
   if (workerId === undefined) {
     return undefined;
@@ -382,7 +402,7 @@ function isContentReadyMessage(message: unknown): message is ContentReadyMessage
     return false;
   }
   const value: Record<string, unknown> = message as Record<string, unknown>;
-  return value["type"] === "web2api:content-ready" && typeof value["url"] === "string";
+  return value["type"] === "web2api:content-ready" && typeof value["url"] === "string" && typeof value["loggedIn"] === "boolean";
 }
 
 function isPopupRequest(message: unknown): message is PopupRequest {

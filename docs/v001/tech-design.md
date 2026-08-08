@@ -215,7 +215,7 @@
 
 推荐方案：同时支持流式与非流式，共用内部事件流
 
-理由：Content Script 通过 `MutationObserver` 增量读取当前 assistant 消息，并向 daemon 上报统一的文本增量、图片结果、完成和错误事件。`stream: true` 时 daemon 将这些事件转换为 Responses API 的 typed SSE；`stream: false` 时聚合相同事件并返回最终 Response JSON。这样兼容两类客户端，同时不维护两套浏览器执行逻辑。
+理由：Content Script 增量读取当前 assistant 消息，并向 daemon 上报统一的文本增量、图片结果、完成和错误事件。`stream: true` 时 daemon 将这些事件转换为 Responses API 的 typed SSE；`stream: false` 时聚合相同事件并返回最终 Response JSON。这样兼容两类客户端，同时不维护两套浏览器执行逻辑。
 
 流式文本至少发送完整的标准生命周期事件，包括 `response.created`、output item/content part 创建、`response.output_text.delta`、对应的 done 事件和 `response.completed`。图片第一期只在网页生成完成后发送最终 `image_generation_call`，不伪造 partial image 事件。
 
@@ -1202,7 +1202,7 @@ DOM fixture 不能证明真实 ChatGPT 可用。每次发布必须使用测试�
 - 执行一次函数调用并把本地结果送回原对话
 - 登出状态和页面 selector 失效状态
 
-真实网页测试不放入普通 CI，不保存账号凭据或对话内容为构建产物。执行方式是启动一个专用的持久化 Playwright Chromium profile，首次由测试人员手动登录 ChatGPT，之后由测试复用该 profile。禁止读取或复制用户日常 Chrome profile。
+真实网页测试不放入普通 CI，不保存账号凭据或对话内容为构建产物。`pnpm test:smoke:chatgpt:setup` 启动专用的持久化 Playwright Chromium profile，首次由测试人员手动登录 ChatGPT；`pnpm test:smoke:chatgpt` 只复用已登录 Profile，未登录时立即失败，不在自动验收中等待人工操作。禁止读取或复制用户日常 Chrome profile。
 
 ## 13. 实施顺序
 

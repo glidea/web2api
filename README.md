@@ -62,8 +62,11 @@ node bin/glidea-web2api.mjs install --extension-id <extension-id>
 Real-page smoke testing opens a dedicated Chromium profile:
 
 ```sh
+pnpm test:smoke:chatgpt:setup
 pnpm test:smoke:chatgpt
 ```
+
+Run the setup command once and log in inside the opened Chromium window. The profile remains under `~/.web2api/chatgpt-profile`; later smoke runs reuse it without copying browser cookies.
 
 ## Documentation
 

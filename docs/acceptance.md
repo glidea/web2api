@@ -88,6 +88,20 @@ pnpm test:e2e:extension-responses
 
 前三项验证单元、类型和扩展加载。后两项使用 fixture 页面串联真实扩展、daemon 和 Responses API，不要求 ChatGPT 登录。
 
+真实 ChatGPT 页面首次验收先建立专用登录 Profile：
+
+```sh
+pnpm test:smoke:chatgpt:setup
+```
+
+在弹出的 Chromium 中登录一次。命令检测到聊天输入框和图片上传控件后自动退出，登录态保存在 `~/.web2api/chatgpt-profile`。此后运行：
+
+```sh
+pnpm test:smoke:chatgpt
+```
+
+smoke test 不等待人工登录；Profile 未登录时立即失败并提示重新执行 setup。
+
 ## 7. 卸载本地 Companion
 
 ```sh

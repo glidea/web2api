@@ -39,14 +39,23 @@
 - [x] 3. 测试并实现 `File` + `DataTransfer` 图片上传
 - [x] 4. 测试并实现模型与 reasoning effort 扫描和切换
 - [x] 5. 测试并实现最终生成图片字节提取
-- [ ] 6. 记录真实网页 smoke test 结果和失败证据
+- [x] 6. 记录真实网页 smoke test 结果和失败证据
 
 ## 验收测试步骤
 1. 运行 DOM fixture 单元测试并确认全部通过
-2. 在专用 Chromium profile 登录 ChatGPT 后运行 `pnpm test:smoke:chatgpt`
-3. 确认五项能力全部通过；任一失败时任务不得标记完成
+2. 首次运行 `pnpm test:smoke:chatgpt:setup`，在专用 Chromium profile 登录 ChatGPT
+3. 之后运行 `pnpm test:smoke:chatgpt` 完成无人值守验收
+4. 确认五项能力全部通过；任一失败时任务不得标记完成
 
-真实 smoke 当前未标记完成：`pnpm test:smoke:chatgpt` 会自动创建并加载专用 Chromium profile，首次运行仍需测试人员在该窗口手动登录 ChatGPT。测试不会读取日常 Chrome profile。
+2026-08-08 已在登录后的真实 ChatGPT 页面完成验收。由于 Codex In-App Browser 不能安装 unpacked 扩展，测试使用临时 CDP 消息桥接复用同一份 Adapter bundle 串联本地 daemon，没有复制 Cookie 或其他凭据。结果如下：
+
+- 两轮文本分别精确返回 `WEB2API_SMOKE_OK` 和 `WEB2API_CONTINUE_OK`，conversation ID 保持一致
+- 动态发现模型 `gpt-5.6-sol`、`gpt-5.5`、`o3`，动态发现思考等级 `fast`、`medium`、`high`、`xhigh`、`pro`
+- 真实切换到 `gpt-5.5 + medium` 后恢复原模型与思考等级
+- 外部 PNG 成功进入页面附件预览
+- 图片编辑请求经 `POST /v1/responses` 返回 HTTP 200，`image_generation_call.result` 为可解码 PNG，页面生成 1254 x 1254 图片
+
+仓库仍提供 `pnpm test:smoke:chatgpt:setup` 和 `pnpm test:smoke:chatgpt`，用于开发者在专用 Chromium profile 中重复验收，不读取日常 Chrome profile。
 
 ---
 
@@ -234,7 +243,7 @@
 - [x] 4. 实现 macOS、Linux 和 Windows 用户级 Native Host 安装逻辑
 - [x] 5. 验证复制后的 bundle 可脱离 npm 临时目录启动 daemon
 - [x] 6. 完成 popup 启停、重启、API key 和并发标签页管理
-- [ ] 7. 在 popup 展示明确的登录和模型诊断
+- [x] 7. 在 popup 展示明确的登录和模型诊断
 - [x] 8. 建立一条发布前真实 ChatGPT smoke test 命令
 - [x] 9. 记录后台服务与 Node SEA 的后续决策，不实现未验证方案
 

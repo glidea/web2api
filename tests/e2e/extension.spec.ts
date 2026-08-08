@@ -68,6 +68,8 @@ test("opens popup and reports content script readiness", async (): Promise<void>
   await expect(popup.getByText("Local companion required")).toBeVisible();
   await expect(popup.getByText(`npx -y glidea-web2api@latest install --extension-id ${extensionId}`)).toBeVisible();
   await expect(popup.getByText("Content script ready")).toBeVisible();
+  await expect(popup.getByText("ChatGPT Logged in")).toBeVisible();
+  await expect(popup.getByText("Models chatgpt/default")).toBeVisible();
   await popup.getByRole("button", { name: "Check again" }).click();
   await expect(popup.getByText("Local companion required")).toBeVisible();
   await popup.close();
