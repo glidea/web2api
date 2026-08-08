@@ -4,24 +4,53 @@ Expose a logged-in ChatGPT Chrome session through a local OpenAI Responses API.
 
 Supported response types include text, streaming text, image generation, image input, and emulated function calling.
 
-## Install
+## Quick Start
 
-1. Install the Web2API Chrome extension.
-2. Open its popup.
-3. Run the one-time command shown by the popup:
+Requirements:
+
+- Chrome
+- Node.js 22+
+- A logged-in ChatGPT account
+
+The Chrome extension is not in the Chrome Web Store yet. Build and load it locally:
+
+```sh
+git clone --depth 1 https://github.com/glidea/web2api.git
+cd web2api
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build:extension
+```
+
+Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select:
+
+```text
+src/extension/.output/chrome-mv3
+```
+
+Pin Web2API and open its popup. Run the one-time command displayed there:
 
 ```sh
 npx -y glidea-web2api@latest install --extension-id <extension-id>
 ```
 
-4. Click **Check again** in the popup.
+Return to the popup and click **Check again**. Web2API starts the local companion and opens the configured number of ChatGPT worker tabs. Log in to ChatGPT in those tabs if required.
 
-The extension starts the local companion automatically. The popup provides the Base URL, API key, daemon controls, and concurrent tab setting.
+The popup now provides the Base URL, API key, daemon controls, and concurrent tab setting. Copy the API key and verify the complete path:
 
-Configure an OpenAI-compatible client with:
+```sh
+export WEB2API_KEY="wb2_replace_with_popup_value"
+
+curl http://127.0.0.1:3210/v1/responses \
+  -H "Authorization: Bearer $WEB2API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"chatgpt/default","input":"Reply with exactly WEB2API_OK"}'
+```
+
+The response should contain `WEB2API_OK`. Configure other OpenAI-compatible clients with:
 
 - Base URL: `http://127.0.0.1:3210/v1`
-- API key: copy it from the extension popup
+- API key: the value shown in the popup
 - Model: `chatgpt/default`
 
 The companion does not store prompts, responses, images, cookies, or ChatGPT credentials. The account must already be logged in to `chatgpt.com`.
