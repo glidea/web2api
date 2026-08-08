@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { ExtensionGateway, GatewayError, type TextJobResult, type TextJobHandle } from "./extension-gateway";
 import { decodeResponseId, encodeResponseId } from "./response-id";
 import { resolveImage, type ResolvedImage } from "./image-resolver";
+import { buildFunctionPrompt, parseFunctionResponse, ToolProtocolError, type FunctionCall, type FunctionResponse, type FunctionTool, type FunctionToolChoice, type FunctionToolOutput } from "./tool-protocol";
 
 type ResponsesRequest = {
   model: string;
@@ -12,6 +13,9 @@ type ResponsesRequest = {
   reasoningEffort: string | undefined;
   images: Array<ResolvedImage>;
   generateImage: boolean;
+  functionTools: FunctionTool[];
+  toolChoice: FunctionToolChoice;
+  parallelToolCalls: boolean;
 };
 
 type StreamResponseState = {
@@ -36,6 +40,13 @@ type ResponsesBody = {
     type: "image_generation_call";
     status: "completed";
     result: string;
+  } | {
+    id: string;
+    type: "function_call";
+    status: "completed";
+    call_id: string;
+    name: string;
+    arguments: string;
   }>;
 };
 
@@ -54,13 +65,16 @@ export class ResponsesService {
         return;
       }
       const result: TextJobResult = await this.gateway.executeTextJob(body.model, body.input, body.conversationId, body.reasoningEffort, body.images.map(toProtocolImage), body.generateImage);
-      const output: ResponsesBody["output"] = [{
-        id: `msg_${randomUUID()}`,
-        type: "message",
-        status: "completed",
-        role: "assistant",
-        content: [{ type: "output_text", text: result.text, annotations: [] }]
-      }];
+      const parsed: FunctionResponse = parseFunctionResponse(result.text, body.functionTools, body.toolChoice, body.parallelToolCalls);
+      const output: ResponsesBody["output"] = parsed.type === "function_calls"
+        ? parsed.calls.map((call: FunctionCall): ResponsesBody["output"][number] => toFunctionCallItem(call))
+        : [{
+            id: `msg_${randomUUID()}`,
+            type: "message",
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text: parsed.text, annotations: [] }]
+          }];
       if (result.image !== undefined) {
         output.push({ id: `ig_${randomUUID()}`, type: "image_generation_call", status: "completed", result: result.image.data });
       }
@@ -95,6 +109,7 @@ export class ResponsesService {
     }
     let input: string = "";
     const images: Array<ResolvedImage> = [];
+    const toolOutputs: FunctionToolOutput[] = [];
     if (typeof record["input"] === "string") {
       input = record["input"];
     } else if (Array.isArray(record["input"])) {
@@ -113,6 +128,10 @@ export class ResponsesService {
           } catch (error: unknown) {
             throw new RequestError(400, "image_invalid", error instanceof Error ? error.message : String(error));
           }
+          continue;
+        }
+        if (content["type"] === "function_call_output" && typeof content["call_id"] === "string" && typeof content["output"] === "string") {
+          toolOutputs.push({ call_id: content["call_id"], output: content["output"] });
           continue;
         }
         throw new RequestError(400, "unsupported_parameter", "Unsupported input item");
@@ -146,13 +165,55 @@ export class ResponsesService {
       }
     }
     let generateImage: boolean = false;
+    const functionTools: FunctionTool[] = [];
     if (record["tools"] !== undefined) {
       if (!Array.isArray(record["tools"])) {
         throw new RequestError(400, "invalid_request", "tools must be an array");
       }
-      generateImage = record["tools"].some((tool: unknown): boolean => typeof tool === "object" && tool !== null && (tool as Record<string, unknown>)["type"] === "image_generation");
+      for (const value of record["tools"]) {
+        if (typeof value !== "object" || value === null) {
+          throw new RequestError(400, "invalid_request", "tool must be an object");
+        }
+        const tool: Record<string, unknown> = value as Record<string, unknown>;
+        switch (tool["type"]) {
+          case "image_generation":
+            generateImage = true;
+            break;
+          case "function":
+            functionTools.push(parseFunctionTool(tool));
+            break;
+          default:
+            throw new RequestError(400, "unsupported_tool", "Unsupported tool type");
+        }
+      }
     }
-    return { model: record["model"], input, stream: record["stream"] === true, conversationId, reasoningEffort, images, generateImage };
+    const functionNames: Set<string> = new Set<string>();
+    for (const tool of functionTools) {
+      if (functionNames.has(tool.name)) {
+        throw new RequestError(400, "invalid_request", "Function tool names must be unique");
+      }
+      functionNames.add(tool.name);
+    }
+    const toolChoice: FunctionToolChoice = parseToolChoice(record["tool_choice"], functionNames);
+    let parallelToolCalls: boolean = true;
+    if (record["parallel_tool_calls"] !== undefined) {
+      if (typeof record["parallel_tool_calls"] !== "boolean") {
+        throw new RequestError(400, "invalid_request", "parallel_tool_calls must be a boolean");
+      }
+      parallelToolCalls = record["parallel_tool_calls"];
+    }
+    let instructions: string | undefined;
+    if (record["instructions"] !== undefined) {
+      if (typeof record["instructions"] !== "string") {
+        throw new RequestError(400, "invalid_request", "instructions must be a string");
+      }
+      instructions = record["instructions"];
+    }
+    const activeFunctionTools: FunctionTool[] = toolChoice === "none" ? [] : functionTools;
+    if (functionTools.length > 0 || toolOutputs.length > 0) {
+      input = buildFunctionPrompt({ text: input, tool_outputs: toolOutputs }, activeFunctionTools, toolChoice, parallelToolCalls, instructions);
+    }
+    return { model: record["model"], input, stream: record["stream"] === true, conversationId, reasoningEffort, images, generateImage, functionTools: activeFunctionTools, toolChoice, parallelToolCalls };
   }
 
   private async handleStream(request: IncomingMessage, response: ServerResponse, body: ResponsesRequest): Promise<void> {
@@ -165,11 +226,13 @@ export class ResponsesService {
           state.responseId = encodeResponseId(conversationId, randomUUID());
           this.writeEvent(response, "response.created", { type: "response.created", response: { id: state.responseId, object: "response", status: "in_progress", model: body.model } });
           this.writeEvent(response, "response.in_progress", { type: "response.in_progress", response_id: state.responseId });
-          this.writeEvent(response, "response.output_item.added", { type: "response.output_item.added", response_id: state.responseId, item: { id: state.outputItemId, type: "message", role: "assistant" } });
-          this.writeEvent(response, "response.content_part.added", { type: "response.content_part.added", response_id: state.responseId, item_id: state.outputItemId });
+          if (body.functionTools.length === 0) {
+            this.writeEvent(response, "response.output_item.added", { type: "response.output_item.added", response_id: state.responseId, item: { id: state.outputItemId, type: "message", role: "assistant" } });
+            this.writeEvent(response, "response.content_part.added", { type: "response.content_part.added", response_id: state.responseId, item_id: state.outputItemId });
+          }
         },
         onDelta: (delta: string): void => {
-          if (state.responseId !== undefined) {
+          if (state.responseId !== undefined && body.functionTools.length === 0) {
             this.writeEvent(response, "response.output_text.delta", { type: "response.output_text.delta", response_id: state.responseId, item_id: state.outputItemId, delta });
           }
         },
@@ -193,14 +256,31 @@ export class ResponsesService {
       if (clientClosed || state.responseId === undefined) {
         return;
       }
-      this.writeEvent(response, "response.output_text.done", { type: "response.output_text.done", response_id: state.responseId, item_id: state.outputItemId, text: result.text });
-      this.writeEvent(response, "response.content_part.done", { type: "response.content_part.done", response_id: state.responseId, item_id: state.outputItemId });
-      this.writeEvent(response, "response.output_item.done", { type: "response.output_item.done", response_id: state.responseId, item_id: state.outputItemId });
+      const parsed: FunctionResponse = parseFunctionResponse(result.text, body.functionTools, body.toolChoice, body.parallelToolCalls);
+      if (parsed.type === "function_calls") {
+        parsed.calls.forEach((call: FunctionCall, outputIndex: number): void => {
+          const item: ResponsesBody["output"][number] = toFunctionCallItem(call);
+          this.writeEvent(response, "response.output_item.added", { type: "response.output_item.added", response_id: state.responseId, output_index: outputIndex, item: { ...item, status: "in_progress", arguments: "" } });
+          this.writeEvent(response, "response.function_call_arguments.delta", { type: "response.function_call_arguments.delta", response_id: state.responseId, item_id: item.id, output_index: outputIndex, delta: call.arguments });
+          this.writeEvent(response, "response.function_call_arguments.done", { type: "response.function_call_arguments.done", response_id: state.responseId, item_id: item.id, output_index: outputIndex, arguments: call.arguments });
+          this.writeEvent(response, "response.output_item.done", { type: "response.output_item.done", response_id: state.responseId, output_index: outputIndex, item });
+        });
+      } else {
+        if (body.functionTools.length > 0) {
+          this.writeEvent(response, "response.output_item.added", { type: "response.output_item.added", response_id: state.responseId, item: { id: state.outputItemId, type: "message", role: "assistant" } });
+          this.writeEvent(response, "response.content_part.added", { type: "response.content_part.added", response_id: state.responseId, item_id: state.outputItemId });
+          this.writeEvent(response, "response.output_text.delta", { type: "response.output_text.delta", response_id: state.responseId, item_id: state.outputItemId, delta: parsed.text });
+        }
+        this.writeEvent(response, "response.output_text.done", { type: "response.output_text.done", response_id: state.responseId, item_id: state.outputItemId, text: parsed.text });
+        this.writeEvent(response, "response.content_part.done", { type: "response.content_part.done", response_id: state.responseId, item_id: state.outputItemId });
+        this.writeEvent(response, "response.output_item.done", { type: "response.output_item.done", response_id: state.responseId, item_id: state.outputItemId });
+      }
       this.writeEvent(response, "response.completed", { type: "response.completed", response_id: state.responseId });
       response.end();
     } catch (error: unknown) {
       if (!clientClosed) {
-        this.writeEvent(response, "error", { type: "error", error: { message: error instanceof Error ? error.message : String(error), code: error instanceof GatewayError ? error.code : "internal_error" } });
+        const code: string = error instanceof GatewayError ? error.code : error instanceof ToolProtocolError ? "tool_protocol_error" : "internal_error";
+        this.writeEvent(response, "error", { type: "error", error: { message: error instanceof Error ? error.message : String(error), code } });
         response.end();
       }
     }
@@ -216,6 +296,10 @@ export class ResponsesService {
       this.sendJson(response, statusCode, { error: { message: error.message, type: "server_error", code: error.code } });
       return;
     }
+    if (error instanceof ToolProtocolError) {
+      this.sendJson(response, 502, { error: { message: error.message, type: "server_error", code: "tool_protocol_error" } });
+      return;
+    }
     this.sendJson(response, 500, { error: { message: "Internal daemon error", type: "server_error", code: "internal_error" } });
   }
 
@@ -228,6 +312,62 @@ export class ResponsesService {
   private writeEvent(response: ServerResponse, event: string, body: unknown): void {
     response.write(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`);
   }
+}
+
+function parseFunctionTool(tool: Record<string, unknown>): FunctionTool {
+  if (typeof tool["name"] !== "string" || tool["name"].length === 0) {
+    throw new RequestError(400, "invalid_request", "Function tool name must be a non-empty string");
+  }
+  if (tool["description"] !== undefined && typeof tool["description"] !== "string") {
+    throw new RequestError(400, "invalid_request", "Function tool description must be a string");
+  }
+  if (typeof tool["parameters"] !== "object" || tool["parameters"] === null || Array.isArray(tool["parameters"])) {
+    throw new RequestError(400, "invalid_request", "Function tool parameters must be a JSON schema object");
+  }
+  if (tool["strict"] !== undefined && typeof tool["strict"] !== "boolean") {
+    throw new RequestError(400, "invalid_request", "Function tool strict must be a boolean");
+  }
+  return {
+    type: "function",
+    name: tool["name"],
+    ...(tool["description"] === undefined ? {} : { description: tool["description"] }),
+    parameters: tool["parameters"] as Record<string, unknown>,
+    strict: tool["strict"] === true
+  };
+}
+
+function parseToolChoice(value: unknown, functionNames: Set<string>): FunctionToolChoice {
+  if (value === undefined || value === "auto") {
+    return "auto";
+  }
+  if (value === "none") {
+    return value;
+  }
+  if (value === "required") {
+    if (functionNames.size === 0) {
+      throw new RequestError(400, "invalid_request", "tool_choice required needs at least one function tool");
+    }
+    return value;
+  }
+  if (typeof value !== "object" || value === null) {
+    throw new RequestError(400, "invalid_request", "Unsupported tool_choice");
+  }
+  const choice: Record<string, unknown> = value as Record<string, unknown>;
+  if (choice["type"] !== "function" || typeof choice["name"] !== "string" || !functionNames.has(choice["name"])) {
+    throw new RequestError(400, "invalid_request", "tool_choice must reference a declared function");
+  }
+  return { name: choice["name"] };
+}
+
+function toFunctionCallItem(call: FunctionCall): Extract<ResponsesBody["output"][number], { type: "function_call" }> {
+  return {
+    id: `fc_${randomUUID()}`,
+    type: "function_call",
+    status: "completed",
+    call_id: call.callId,
+    name: call.name,
+    arguments: call.arguments
+  };
 }
 
 class RequestError extends Error {

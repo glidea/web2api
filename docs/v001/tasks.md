@@ -243,3 +243,31 @@
 2. 加载扩展 zip，确认 popup 可管理 daemon、复制连接信息并修改并发标签页
 3. 使用 OpenAI SDK 完成文本、多轮、并发、模型和图片测试
 4. 检查默认日志不包含 prompt、response、图片、API key 或 ChatGPT 凭据
+
+---
+
+# Task-011: 支持提示词模拟函数工具调用
+
+## 描述
+在 Responses Translator 内把函数定义和本轮输入编码为严格提示词协议，把 ChatGPT 文本结果还原为标准 `function_call`。客户端执行函数后通过 `function_call_output` 和 `previous_response_id` 续接原对话。
+
+## 不包含
+- ChatGPT 私有网络 API
+- daemon 代替客户端执行函数
+- OpenAI 原生 Structured Outputs 或完整 JSON Schema 强校验
+- Web Search、File Search、Computer Use 和 MCP tools
+
+## TODO 清单
+- [x] 1. 先写函数调用与结果回传 E2E 测试
+- [x] 2. 实现函数提示词协议构造和严格边界解析
+- [x] 3. 实现 `function`、`tool_choice` 和 `parallel_tool_calls` 请求校验
+- [x] 4. 实现非流式 `function_call` 输出
+- [x] 5. 实现缓冲式函数 SSE 事件并防止私有协议泄漏
+- [x] 6. 实现 `function_call_output` 原对话续接
+- [x] 7. 通过真实 MV3 扩展 fixture E2E
+
+## 验收测试步骤
+1. 提交带 `get_weather` 定义的请求，确认返回标准 `function_call`
+2. 本地执行函数并携带 `call_id`、`previous_response_id` 回传结果
+3. 确认最终文本来自同一 ChatGPT conversation
+4. 使用 `stream: true` 确认只出现标准函数事件，不出现 `web2api_function_calls` 私有标记

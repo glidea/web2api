@@ -17,6 +17,18 @@ let configDirectory: string;
 let daemon: DaemonProcess;
 let socket: WebSocket;
 let apiKey: string;
+const weatherTools: Array<Record<string, unknown>> = [{
+  type: "function",
+  name: "get_weather",
+  description: "Get the current weather",
+  parameters: {
+    type: "object",
+    properties: { city: { type: "string" } },
+    required: ["city"],
+    additionalProperties: false
+  },
+  strict: true
+}];
 
 async function startDaemon(): Promise<void> {
   configDirectory = await mkdtemp(join(tmpdir(), "web2api-streaming-"));
@@ -95,6 +107,58 @@ describe("streaming responses", (): void => {
     expect(events).toEqual(["response.created", "response.in_progress", "response.output_item.added", "response.content_part.added", "response.output_text.delta", "response.output_text.delta", "response.output_text.done", "response.content_part.done", "response.output_item.done", "response.completed"]);
     const deltas: string[] = Array.from(text.matchAll(/"delta":"([^"]*)"/g)).map((match: RegExpMatchArray): string => match[1] as string);
     expect(deltas.join("")).toBe("hello");
+  });
+
+  it("buffers the private prompt protocol and streams a standard function call", async (): Promise<void> => {
+    const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "Weather in Paris?", tools: weatherTools, stream: true })
+    });
+    const job: DaemonToExtensionMessage = await readDaemonMessage();
+    if (job.type !== "job.start") {
+      throw new Error(`expected job.start, got ${job.type}`);
+    }
+    socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: job.request_id, worker_id: job.worker_id, conversation_id: "conv-tool-stream" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 1, delta: '<web2api_function_calls>{"calls":[{"call_id":"call_weather",' } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 2, delta: '"name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>' } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: job.request_id, worker_id: job.worker_id } satisfies ExtensionToDaemonMessage));
+
+    const response: Response = await responsePromise;
+    const content: string = await response.text();
+    const events: string[] = Array.from(content.matchAll(/^event: ([^\n]+)$/gm)).map((match: RegExpMatchArray): string => match[1] as string);
+    expect(events).toEqual([
+      "response.created",
+      "response.in_progress",
+      "response.output_item.added",
+      "response.function_call_arguments.delta",
+      "response.function_call_arguments.done",
+      "response.output_item.done",
+      "response.completed"
+    ]);
+    expect(content).toContain('"name":"get_weather"');
+    expect(content).toContain('"arguments":"{\\"city\\":\\"Paris\\"}"');
+    expect(content).not.toContain("web2api_function_calls");
+  });
+
+  it("reports a malformed streamed function call as a protocol error", async (): Promise<void> => {
+    const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "Weather in Paris?", tools: weatherTools, stream: true })
+    });
+    const job: DaemonToExtensionMessage = await readDaemonMessage();
+    if (job.type !== "job.start") {
+      throw new Error(`expected job.start, got ${job.type}`);
+    }
+    socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: job.request_id, worker_id: job.worker_id, conversation_id: "conv-tool-error" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 1, delta: "<web2api_function_calls>not-json</web2api_function_calls>" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: job.request_id, worker_id: job.worker_id } satisfies ExtensionToDaemonMessage));
+
+    const response: Response = await responsePromise;
+    const content: string = await response.text();
+    expect(content).toContain("event: error");
+    expect(content).toContain('"code":"tool_protocol_error"');
   });
 
   it("sends job.cancel when the HTTP client aborts", async (): Promise<void> => {

@@ -153,6 +153,26 @@ describe("non-streaming responses", (): void => {
     expect(await response.json()).toMatchObject({ error: { code: "reasoning_effort_not_available" } });
   });
 
+  it("rejects required tool choice without a function tool", async (): Promise<void> => {
+    const response: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "hello", tool_choice: "required" })
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "invalid_request" } });
+  });
+
+  it("rejects unsupported tools instead of silently ignoring them", async (): Promise<void> => {
+    const response: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "hello", tools: [{ type: "web_search" }] })
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "unsupported_tool" } });
+  });
+
   it("returns chatgpt_login_required when the page session is logged out", async (): Promise<void> => {
     const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
       method: "POST",
@@ -221,5 +241,76 @@ describe("non-streaming responses", (): void => {
     expect(response.status).toBe(200);
     const body: { output: Array<{ type: string; result?: string }> } = await response.json() as { output: Array<{ type: string; result?: string }> };
     expect(body.output.find((item: { type: string }): boolean => item.type === "image_generation_call")?.result).toBe("BAUG");
+  });
+
+  it("round trips an emulated function call and its output", async (): Promise<void> => {
+    const tools: Array<Record<string, unknown>> = [{
+      type: "function",
+      name: "get_weather",
+      description: "Get the current weather",
+      parameters: {
+        type: "object",
+        properties: { city: { type: "string" } },
+        required: ["city"],
+        additionalProperties: false
+      },
+      strict: true
+    }];
+    const callResponsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "Weather in Paris?", tools })
+    });
+    const callJob: DaemonToExtensionMessage = await readDaemonMessage();
+    if (callJob.type !== "job.start") {
+      throw new Error(`expected job.start, got ${callJob.type}`);
+    }
+    expect(callJob.payload.input).toContain('"name":"get_weather"');
+    expect(callJob.payload.input).toContain('"text":"Weather in Paris?"');
+    socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: callJob.request_id, worker_id: callJob.worker_id, conversation_id: "conv-tool" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({
+      version: 1,
+      type: "job.output_text.delta",
+      request_id: callJob.request_id,
+      worker_id: callJob.worker_id,
+      sequence: 1,
+      delta: '<web2api_function_calls>{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>'
+    } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: callJob.request_id, worker_id: callJob.worker_id } satisfies ExtensionToDaemonMessage));
+
+    const callResponse: Response = await callResponsePromise;
+    expect(callResponse.status).toBe(200);
+    const callBody: { id: string; output: Array<Record<string, unknown>> } = await callResponse.json() as { id: string; output: Array<Record<string, unknown>> };
+    expect(callBody.output).toMatchObject([{
+      type: "function_call",
+      status: "completed",
+      call_id: "call_weather",
+      name: "get_weather",
+      arguments: '{"city":"Paris"}'
+    }]);
+
+    const finalResponsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "chatgpt/default",
+        previous_response_id: callBody.id,
+        input: [{ type: "function_call_output", call_id: "call_weather", output: '{"temperature":21}' }]
+      })
+    });
+    const finalJob: DaemonToExtensionMessage = await readDaemonMessage();
+    if (finalJob.type !== "job.start") {
+      throw new Error(`expected job.start, got ${finalJob.type}`);
+    }
+    expect(finalJob.payload.conversation_id).toBe("conv-tool");
+    expect(finalJob.payload.input).toContain('"call_id":"call_weather"');
+    expect(finalJob.payload.input).toContain('{\\"temperature\\":21}');
+    socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: finalJob.request_id, worker_id: finalJob.worker_id, conversation_id: "conv-tool" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: finalJob.request_id, worker_id: finalJob.worker_id, sequence: 1, delta: "It is 21 degrees." } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: finalJob.request_id, worker_id: finalJob.worker_id } satisfies ExtensionToDaemonMessage));
+
+    const finalResponse: Response = await finalResponsePromise;
+    const finalBody: { output: Array<{ type: string; content?: Array<{ text: string }> }> } = await finalResponse.json() as { output: Array<{ type: string; content?: Array<{ text: string }> }> };
+    expect(finalBody.output[0]?.content?.[0]?.text).toBe("It is 21 degrees.");
   });
 });

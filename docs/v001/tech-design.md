@@ -259,13 +259,25 @@
 
 选择 Node 原生 HTTP 而不是 Express、NestJS 或 Fastify，是因为第一期只有三个 HTTP 端点和一个 WebSocket 路径。框架不会减少核心复杂度，只会增加中间层。Svelte 只用于 popup 和 options，不能进入 Content Script 的 DOM adapter。
 
+### 1.15 已确认决策
+
+#### D014 函数工具调用采用提示词协议模拟
+
+状态：已确认
+
+结论：Responses Translator 把 `function` 工具定义、本轮输入、`tool_choice` 和 `parallel_tool_calls` 编码为一段严格提示词。ChatGPT 页面仍只收发文本；daemon 识别带边界标记的 JSON 结果并投影为标准 `function_call`，客户端执行函数后通过 `function_call_output` 和 `previous_response_id` 续接原对话。
+
+`call_id` 由模型按提示词协议生成并原样返回。它已经存在于 ChatGPT 对话中，因此 daemon 不需要保存 `call_id -> function` 映射。daemon 只接受已声明函数名、唯一 `call_id` 和 JSON object 参数，并再次校验 `tool_choice` 与 `parallel_tool_calls`；协议格式错误返回 `502 tool_protocol_error`，不能把私有协议文本泄漏给调用方。
+
+这不是 ChatGPT 原生 function calling。`strict: true` 只作为提示词约束传给模型，daemon 目前不执行完整 JSON Schema 校验，无法提供 OpenAI 原生 Structured Outputs 的确定性保证。函数较多、schema 复杂或用户输入包含提示词注入时，可靠性会下降。该限制必须在 README 和发布说明中明确标注。
+
 ## 2. 目标与边界
 
 ### 2.1 目标
 
 - 本地进程只需要修改 OpenAI SDK 的 `base_url` 和 API key 即可调用
 - 复用用户真实 Chrome 中的 ChatGPT 登录状态，不复制 Cookie，不读取浏览器凭据
-- 支持文本、流式输出、多轮续接、模型切换、思考等级、文本生图和外部图片编辑
+- 支持文本、流式输出、多轮续接、函数工具调用、模型切换、思考等级、文本生图和外部图片编辑
 - Chrome 页面变化时只修改扩展中的 ChatGPT adapter
 - daemon 重启后仍可通过 `previous_response_id` 续接已有 ChatGPT 对话
 
@@ -273,7 +285,7 @@
 
 - 不调用或复刻 ChatGPT 私有网络 API
 - 不实现 Chat Completions API、Files API、Assistants API 和 Batch API
-- 不支持函数调用、Web Search、File Search、Computer Use 等其他 Responses tools
+- 不支持 Web Search、File Search、Computer Use 等其他 Responses tools
 - 不提供账号共享、远程访问、配额绕过或风控绕过
 - 不保证与 OpenAI 官方 Responses API 完全等价，只保证本文声明的兼容子集
 - 不缓存提示词、响应或生成图片
@@ -386,7 +398,7 @@ flowchart TB
 | Native Host | 接收 popup 控制命令，启动、停止和配置 daemon | 承载 Responses 请求和流式数据 |
 | CLI | 手工启动服务、打印连接信息、读取配置 | 接管 Chrome 或保存对话 |
 | HTTP API | Bearer 认证、请求解析、HTTP/SSE 连接生命周期 | 页面控制和任务调度 |
-| Responses Translator | 校验兼容子集，生成 `RequestTask` | 猜测或静默忽略参数 |
+| Responses Translator | 校验兼容子集，构造函数提示词协议，生成 `RequestTask` | 执行客户端函数或静默忽略参数 |
 | Scheduler | FIFO、conversation lock、worker lease | 创建 Chrome tab |
 | Extension Gateway | 单条 WebSocket、心跳、typed message 路由 | 决定任务先后顺序 |
 | Image Resolver | 下载 HTTP(S) 图片或解码 data URL | Files API、长期存储 |
@@ -680,7 +692,32 @@ sequenceDiagram
 
 Chrome 扩展消息使用 JSON 序列化且单条消息上限为 64 MiB，因此每张图片编码后必须低于该上限。图片之间分开发送，单张图片超过上限直接返回错误，不切片传输。
 
-### 4.8 模型与思考等级
+### 4.8 函数工具调用
+
+```mermaid
+sequenceDiagram
+    participant C as "本地客户端"
+    participant D as "daemon"
+    participant W as "ChatGPT 页面"
+
+    C->>D: "POST /v1/responses(input + tools)"
+    D->>D: "校验 function schema 并构造提示词协议"
+    D->>W: "提交协议提示词"
+    W-->>D: "带边界标记的 calls JSON"
+    D->>D: "校验函数名、call_id 和 arguments"
+    D-->>C: "function_call"
+    C->>C: "执行本地函数"
+    C->>D: "previous_response_id + function_call_output"
+    D->>W: "在同一对话提交函数结果"
+    W-->>D: "最终文本或下一批函数调用"
+    D-->>C: "message 或 function_call"
+```
+
+daemon 不执行函数。工具的网络、文件或业务副作用完全属于本地客户端，行为与 OpenAI Responses API 的调用方职责一致。
+
+工具请求必须等网页完成整段输出后，daemon 才能判断结果是普通文本还是私有函数协议。因此即使 `stream: true`，工具请求也会先在 daemon 内存中缓冲网页文本，再发送标准 `response.function_call_arguments.*` 或文本事件。普通文本请求仍保持实时增量，不受影响。
+
+### 4.9 模型与思考等级
 
 ```json
 {
@@ -700,7 +737,7 @@ Chrome 扩展消息使用 JSON 序列化且单条消息上限为 64 MiB，因此
 
 `chatgpt/default` 跳过模型切换。省略 `reasoning.effort` 跳过思考等级切换。任何显式值无法匹配时，请求在提交前失败，页面不得发送 prompt。
 
-### 4.9 流式提取
+### 4.10 流式提取
 
 ChatGPT Adapter 只观察当前任务对应的 assistant message container：
 
@@ -713,11 +750,11 @@ ChatGPT Adapter 只观察当前任务对应的 assistant message container：
 
 非流式请求同样走这条内部事件流，只在 daemon 内聚合。没有第二套页面读取实现。
 
-### 4.10 客户端断开
+### 4.11 客户端断开
 
 HTTP 客户端在任务完成前断开时，daemon 向扩展发送 `job.cancel`。Content Script 点击 ChatGPT 页面停止按钮，随后释放 worker 和 conversation lock。第一期不提供后台继续执行和结果找回能力。
 
-### 4.11 连接中断与恢复
+### 4.12 连接中断与恢复
 
 | 中断点 | 处理 |
 | --- | --- |
@@ -806,11 +843,13 @@ worker 与 tab 一一对应，但 daemon 不保存 Chrome tab ID。扩展关闭�
 | 字段 | 第一期行为 |
 | --- | --- |
 | `model` | 必填，`chatgpt/default` 或 `/v1/models` 返回值 |
-| `input` | 支持字符串，或包含 `input_text`、`input_image` 的 user content |
+| `input` | 支持字符串，或包含 `input_text`、`input_image`、`function_call_output` 的输入数组 |
 | `previous_response_id` | 可选，续接已有 ChatGPT 对话 |
 | `stream` | 可选，默认 `false` |
 | `reasoning.effort` | 可选，严格映射页面能力 |
-| `tools` | 只支持 `image_generation` |
+| `tools` | 支持 `image_generation` 和 `function` |
+| `tool_choice` | 支持 `auto`、`none`、`required` 或指定已声明函数 |
+| `parallel_tool_calls` | 可选，默认 `true`；为 `false` 时最多返回一个调用 |
 
 未声明支持的字段返回 `unsupported_parameter`，不能静默忽略。`input_image` 支持 HTTP(S) URL 和 base64 data URL，不支持 `file_id`。
 
@@ -852,7 +891,48 @@ worker 与 tab 一一对应，但 daemon 不保存 Chrome tab ID。扩展关闭�
 }
 ```
 
-### 6.5 response ID
+### 6.5 函数工具示例
+
+```json
+{
+  "model": "chatgpt/default",
+  "input": "查询巴黎天气",
+  "tools": [
+    {
+      "type": "function",
+      "name": "get_weather",
+      "description": "查询指定城市的当前天气",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": { "type": "string" }
+        },
+        "required": ["city"],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  ]
+}
+```
+
+收到 `function_call` 后，客户端执行函数并续接：
+
+```json
+{
+  "model": "chatgpt/default",
+  "previous_response_id": "resp_<conversation_id>_<turn_id>",
+  "input": [
+    {
+      "type": "function_call_output",
+      "call_id": "call_weather",
+      "output": "{\"temperature\":21}"
+    }
+  ]
+}
+```
+
+### 6.6 response ID
 
 ```text
 resp_<chatgpt_conversation_id>_<turn_id>
@@ -863,7 +943,7 @@ resp_<chatgpt_conversation_id>_<turn_id>
 - 客户端必须把整个 ID 当成不透明字符串
 - daemon 从最后一个 `_` 分隔符解析 turn ID，其余部分解析为 conversation ID
 
-### 6.6 SSE 事件
+### 6.7 SSE 事件
 
 文本流发送适用的标准 Responses 生命周期事件：
 
@@ -881,7 +961,21 @@ response.completed
 
 每个 SSE frame 使用 `event: <type>` 和 `data: <json>`。图片第一期只发送最终 `image_generation_call` output item，不发送 partial image 事件。
 
-### 6.7 错误格式
+函数调用流发送：
+
+```text
+response.created
+response.in_progress
+response.output_item.added
+response.function_call_arguments.delta
+response.function_call_arguments.done
+response.output_item.done
+response.completed
+```
+
+提示词模拟无法从网页增量中可靠区分普通回答和函数协议，因此函数工具请求完成后一次性投影这些事件。
+
+### 6.8 错误格式
 
 ```json
 {
@@ -1059,6 +1153,8 @@ Origin 校验不能抵御同一台机器上的恶意本地程序，因为原始 
 8. 图片生成返回最终 base64
 9. 客户端断开触发 `job.cancel`
 10. 扩展断连不自动重放任务
+11. 函数调用与 `function_call_output` 在同一 ChatGPT conversation 中闭环
+12. 工具流式响应不泄漏私有提示词协议
 
 这组测试不启动 Chrome，目标是精确验证 Responses API、Scheduler 和 daemon-extension 协议。
 
@@ -1089,6 +1185,7 @@ Playwright 使用独立的持久化 Chromium context，并通过 `--load-extensi
 6. 图片解析
 7. 扩展 worker 生命周期
 8. ChatGPT Adapter DOM fixture 测试
+9. 函数提示词协议构造与解析
 
 每个模块先写失败 UT，再写刚好通过的实现。所有模块通过后运行前述 E2E。
 
@@ -1102,6 +1199,7 @@ DOM fixture 不能证明真实 ChatGPT 可用。每次发布必须使用测试�
 - 上传 base64 图片并编辑
 - 文本生成图片并提取最终字节
 - 两个专用标签页并行执行不同 conversation
+- 执行一次函数调用并把本地结果送回原对话
 - 登出状态和页面 selector 失效状态
 
 真实网页测试不放入普通 CI，不保存账号凭据或对话内容为构建产物。执行方式是启动一个专用的持久化 Playwright Chromium profile，首次由测试人员手动登录 ChatGPT，之后由测试复用该 profile。禁止读取或复制用户日常 Chrome profile。
@@ -1151,6 +1249,13 @@ DOM fixture 不能证明真实 ChatGPT 可用。每次发布必须使用测试�
 - 评估 Node SEA 单文件分发，不阻塞 npm 版本
 - 真实网页 smoke test 和发布检查
 
+### Phase 5：函数工具模拟
+
+- `function`、`tool_choice` 和 `parallel_tool_calls` 请求转换
+- `function_call` 非流式与流式输出
+- `function_call_output` 多轮续接
+- 私有协议解析失败和提示词泄漏保护
+
 ## 14. 主要风险
 
 | 风险 | 等级 | 处理 |
@@ -1162,12 +1267,14 @@ DOM fixture 不能证明真实 ChatGPT 可用。每次发布必须使用测试�
 | MV3 Service Worker 被回收 | 中 | Chrome 116+、20 秒心跳、自动重连 |
 | 后台 tab 节流 | 中 | Phase 0 测量，不提前申请高权限规避 |
 | ChatGPT 风控或 CAPTCHA | 中 | 显式失败并交给用户，不绕过 |
+| 提示词模拟函数调用不稳定 | 高 | 严格边界协议、声明函数校验、真实 smoke test，并明确不承诺原生 strict 保证 |
 
 ## 15. 参考资料
 
 - [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses)
 - [OpenAI Images and vision](https://developers.openai.com/api/docs/guides/images-vision)
 - [OpenAI Responses streaming](https://developers.openai.com/api/docs/guides/migrate-to-responses#7-update-streaming-consumers)
+- [OpenAI Function calling](https://developers.openai.com/api/docs/guides/function-calling)
 - [Chrome Extension Service Worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)
 - [Chrome WebSocket in Service Workers](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets)
 - [Chrome Extension message passing](https://developer.chrome.com/docs/extensions/develop/concepts/messaging)

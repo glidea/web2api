@@ -2,6 +2,8 @@
 
 Expose a logged-in ChatGPT Chrome session through a local OpenAI Responses API.
 
+Supported response types include text, streaming text, image generation, image input, and emulated function calling.
+
 ## Install
 
 1. Install the Web2API Chrome extension.
@@ -23,6 +25,12 @@ Configure an OpenAI-compatible client with:
 - Model: `chatgpt/default`
 
 The companion does not store prompts, responses, images, cookies, or ChatGPT credentials. The account must already be logged in to `chatgpt.com`.
+
+## Function Calling
+
+Pass standard Responses API `function` tools, execute returned `function_call` items locally, then send `function_call_output` with `previous_response_id`. `tool_choice` and `parallel_tool_calls` are supported.
+
+Function calling is emulated through a strict prompt protocol because the ChatGPT consumer page does not expose caller-defined functions. Tool names and JSON arguments are validated, but `strict: true` cannot provide the same guarantee as native OpenAI Structured Outputs. Tool-enabled streaming is buffered until the page response completes.
 
 ## CLI
 

@@ -21,7 +21,9 @@ document.querySelector('[data-testid=send-button]').addEventListener('click', ()
   setTimeout(() => {
     const assistant = document.createElement('div');
     assistant.dataset.messageAuthorRole = 'assistant';
-    assistant.textContent = composer.value === 'hello' ? 'hello from fixture' : startingPath;
+    assistant.textContent = composer.value.includes('WEB2API FUNCTION PROTOCOL V1')
+      ? '<web2api_function_calls>{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>'
+      : composer.value === 'hello' ? 'hello from fixture' : startingPath;
     document.body.append(assistant);
   }, 100);
 });
@@ -125,7 +127,9 @@ test("sends a real extension page job and returns non-streaming response", async
         setTimeout((): void => {
           const assistant: HTMLElement = document.createElement("div");
           assistant.dataset.messageAuthorRole = "assistant";
-          assistant.textContent = composer.value === "hello" ? "hello from fixture" : startingPath;
+          assistant.textContent = composer.value.includes("WEB2API FUNCTION PROTOCOL V1")
+            ? '<web2api_function_calls>{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>'
+            : composer.value === "hello" ? "hello from fixture" : startingPath;
           document.body.append(assistant);
         }, 100);
       });
@@ -174,4 +178,27 @@ test("sends a real extension page job and returns non-streaming response", async
   const continuedBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await continuedResponse.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
   expect(continuedBody.id).toMatch(/^resp_fixture-conversation_/);
   expect(continuedBody.output[0]?.content[0]?.text).toBe("/c/fixture-conversation");
+
+  const toolResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "chatgpt/default",
+      input: "Weather in Paris?",
+      tools: [{
+        type: "function",
+        name: "get_weather",
+        description: "Get the current weather",
+        parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"], additionalProperties: false },
+        strict: true
+      }]
+    })
+  });
+  const toolBody: { output: Array<Record<string, unknown>> } = await toolResponse.json() as { output: Array<Record<string, unknown>> };
+  expect(toolBody.output).toMatchObject([{
+    type: "function_call",
+    call_id: "call_weather",
+    name: "get_weather",
+    arguments: '{"city":"Paris"}'
+  }]);
 });

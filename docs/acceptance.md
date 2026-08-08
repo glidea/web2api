@@ -55,7 +55,28 @@ curl http://127.0.0.1:3210/v1/responses \
 
 验收标准：HTTP 200，最终文本为 `WEB2API_OK`。
 
-## 5. 自动化检查
+## 5. 验证函数调用
+
+```sh
+curl http://127.0.0.1:3210/v1/responses \
+  -H "Authorization: Bearer $WEB2API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model":"chatgpt/default",
+    "input":"查询巴黎天气",
+    "tools":[{
+      "type":"function",
+      "name":"get_weather",
+      "description":"查询城市天气",
+      "parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},
+      "strict":true
+    }]
+  }'
+```
+
+验收标准：HTTP 200，`output[0].type` 为 `function_call`，`name` 为 `get_weather`，`arguments` 是包含 `city` 的 JSON 字符串。该能力使用提示词模拟，不等价于 OpenAI 原生 strict function calling。
+
+## 6. 自动化检查
 
 ```sh
 pnpm test
@@ -67,7 +88,7 @@ pnpm test:e2e:extension-responses
 
 前三项验证单元、类型和扩展加载。后两项使用 fixture 页面串联真实扩展、daemon 和 Responses API，不要求 ChatGPT 登录。
 
-## 6. 卸载本地 Companion
+## 7. 卸载本地 Companion
 
 ```sh
 node bin/glidea-web2api.mjs uninstall --extension-id <extension-id>
