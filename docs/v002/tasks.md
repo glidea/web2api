@@ -53,12 +53,12 @@
 - popup 状态展示
 
 ## TODO 清单
-- [ ] 1. 用真实 DOM 结构 fixture 写 Gemini Adapter 失败测试
-- [ ] 2. 实现 `/app/<conversation_id>` 解析和登录状态判断
-- [ ] 3. 实现当前账号可见模型的动态扫描与严格切换
-- [ ] 4. 实现 contenteditable composer 提交和文本增量读取
-- [ ] 5. 实现 `File` + `DataTransfer` 图片上传与附件就绪确认
-- [ ] 6. 实现最终生成图片提取和停止生成
+- [x] 1. 用真实 DOM 结构 fixture 写 Gemini Adapter 失败测试
+- [x] 2. 实现 `/app/<conversation_id>` 解析和登录状态判断
+- [x] 3. 实现当前账号可见模型的动态扫描与严格切换
+- [x] 4. 实现 contenteditable composer 提交和文本增量读取
+- [x] 5. 实现 `File` + `DataTransfer` 图片上传与附件就绪确认
+- [x] 6. 实现最终生成图片提取和停止生成
 
 ## 验收测试步骤
 1. 运行 `pnpm vitest run tests/gemini-adapter.test.ts`
