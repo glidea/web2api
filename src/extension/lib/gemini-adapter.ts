@@ -19,6 +19,34 @@ export function isGeminiLoggedIn(documentRoot: Document): boolean {
   return documentRoot.querySelector('a[href*="accounts.google.com/SignOutOptions"]') !== null;
 }
 
+export function isGeminiUsable(documentRoot: Document): boolean {
+  const composer: HTMLElement | null = documentRoot.querySelector('[role="textbox"][contenteditable="true"]');
+  return composer !== null && findModelMenuButton(documentRoot) !== null;
+}
+
+export function detectImageMediaType(bytes: Uint8Array): string {
+  const isPng: boolean = bytes.length >= 8
+    && bytes[0] === 137
+    && bytes[1] === 80
+    && bytes[2] === 78
+    && bytes[3] === 71
+    && bytes[4] === 13
+    && bytes[5] === 10
+    && bytes[6] === 26
+    && bytes[7] === 10;
+  if (isPng) {
+    return "image/png";
+  }
+  const isJpeg: boolean = bytes.length >= 3
+    && bytes[0] === 255
+    && bytes[1] === 216
+    && bytes[2] === 255;
+  if (isJpeg) {
+    return "image/jpeg";
+  }
+  throw new Error("unsupported_generated_image");
+}
+
 export class AssistantTextReader {
   private readonly node: HTMLElement;
   private previousText: string = "";
@@ -85,25 +113,45 @@ export async function selectReasoningEffort(documentRoot: Document, effort: stri
 }
 
 export async function submitPrompt(documentRoot: Document, prompt: string): Promise<void> {
-  if (!isGeminiLoggedIn(documentRoot)) {
-    throw new Error("login_required");
-  }
-  const composer: HTMLElement | null = documentRoot.querySelector('[role="textbox"][contenteditable="true"]');
-  if (composer === null) {
+  if (documentRoot.querySelector('[role="textbox"][contenteditable="true"]') === null) {
     throw new Error("composer_not_found");
   }
-  composer.focus();
-  composer.textContent = prompt;
-  composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
-  const sendButton: HTMLButtonElement = await waitForButton(documentRoot, findSendButton, 2_000, "send_button_not_found");
-  sendButton.click();
+  let preparedComposer: HTMLElement | undefined;
+  const deadline: number = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const composer: HTMLElement | null = documentRoot.querySelector('[role="textbox"][contenteditable="true"]');
+    if (composer !== null && composer !== preparedComposer) {
+      composer.focus();
+      composer.textContent = prompt;
+      composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
+      preparedComposer = composer;
+      await delay(25);
+      continue;
+    }
+    const sendButton: HTMLButtonElement | null = findSendButton(documentRoot);
+    if (composer === preparedComposer && sendButton !== null && !sendButton.disabled && sendButton.getAttribute("aria-disabled") !== "true") {
+      sendButton.click();
+      return;
+    }
+    await delay(25);
+  }
+  throw new Error("send_button_not_found");
 }
 
 export async function uploadImages(documentRoot: Document, images: ImagePayload[]): Promise<void> {
   if (images.length === 0) {
     return;
   }
-  const input: HTMLInputElement | null = documentRoot.querySelector('input[type="file"].hidden-file-input, input[type="file"][data-test-id="local-image-upload-input"]');
+  let input: HTMLInputElement | null = findUploadInput(documentRoot);
+  if (input === null) {
+    const uploadMenuButton: HTMLButtonElement | null = findUploadMenuButton(documentRoot);
+    uploadMenuButton?.click();
+    const deadline: number = Date.now() + 2_000;
+    while (input === null && Date.now() < deadline) {
+      await delay(25);
+      input = findUploadInput(documentRoot);
+    }
+  }
   if (input === null) {
     throw new Error("upload_input_not_found");
   }
@@ -116,6 +164,38 @@ export async function uploadImages(documentRoot: Document, images: ImagePayload[
   input.files = transfer.files;
   input.dispatchEvent(new Event("change", { bubbles: true }));
   await waitForAttachmentPreviews(documentRoot, previousPreviewCount + images.length);
+}
+
+export async function enableImageGeneration(documentRoot: Document): Promise<void> {
+  let imageTool: HTMLButtonElement | null = findImageGenerationTool(documentRoot);
+  const deadline: number = Date.now() + 3_000;
+  while (imageTool === null && Date.now() < deadline) {
+    const uploadMenuButton: HTMLButtonElement | null = findUploadMenuButton(documentRoot);
+    if (uploadMenuButton !== null && uploadMenuButton.getAttribute("aria-expanded") !== "true") {
+      uploadMenuButton.click();
+    }
+    await delay(25);
+    imageTool = findImageGenerationTool(documentRoot);
+  }
+  if (imageTool === null) {
+    throw new Error("image_generation_not_available");
+  }
+  if (imageTool.getAttribute("aria-checked") !== "true") {
+    imageTool.click();
+    await delay(25);
+  }
+}
+
+function findUploadInput(documentRoot: Document): HTMLInputElement | null {
+  return documentRoot.querySelector('input[type="file"].hidden-file-input, input[type="file"][data-test-id="local-image-upload-input"]');
+}
+
+function findUploadMenuButton(documentRoot: Document): HTMLButtonElement | null {
+  return documentRoot.querySelector('button[aria-label="Upload and tools"], button[aria-label="Upload & tools"], button[aria-label="上传和工具"]');
+}
+
+function findImageGenerationTool(documentRoot: Document): HTMLButtonElement | null {
+  return documentRoot.querySelector<HTMLElement>('[data-mat-icon-name="image_create"], mat-icon[fonticon="image_create"]')?.closest<HTMLButtonElement>('button[role="menuitemcheckbox"]') ?? null;
 }
 
 export function cancelGeneration(documentRoot: Document): void {
@@ -220,11 +300,11 @@ function normalizedLabel(label: string): string {
 }
 
 function findSendButton(documentRoot: Document): HTMLButtonElement | null {
-  const labeledButton: HTMLButtonElement | null = documentRoot.querySelector<HTMLButtonElement>('button[aria-label="Send"], button[aria-label="发送"]');
+  const labeledButton: HTMLButtonElement | null = documentRoot.querySelector<HTMLButtonElement>('button[aria-label="Send"], button[aria-label="Send message"], button[aria-label="发送"], button[aria-label="发送消息"]');
   if (labeledButton !== null) {
     return labeledButton;
   }
-  return documentRoot.querySelector<HTMLElement>('[data-mat-icon-name="send"], mat-icon[fonticon="send"]')?.closest<HTMLButtonElement>("button") ?? null;
+  return documentRoot.querySelector<HTMLElement>('[data-mat-icon-name="send"], [data-mat-icon-name="arrow_upward"], mat-icon[fonticon="send"], mat-icon[fonticon="arrow_upward"]')?.closest<HTMLButtonElement>("button") ?? null;
 }
 
 function findStopButton(documentRoot: Document): HTMLButtonElement | null {
@@ -239,7 +319,7 @@ async function waitForButton(documentRoot: Document, finder: (documentRoot: Docu
   const deadline: number = Date.now() + timeout;
   while (Date.now() < deadline) {
     const button: HTMLButtonElement | null = finder(documentRoot);
-    if (button !== null) {
+    if (button !== null && !button.disabled && button.getAttribute("aria-disabled") !== "true") {
       return button;
     }
     await delay(25);
@@ -248,7 +328,7 @@ async function waitForButton(documentRoot: Document, finder: (documentRoot: Docu
 }
 
 function getAttachmentPreviewCount(documentRoot: Document): number {
-  return documentRoot.querySelectorAll('file-preview, [data-test-id="attachment"], [data-test-id="uploaded-file"], [data-test-id="file-preview"]').length;
+  return documentRoot.querySelectorAll('uploader-file-preview, file-preview, [data-test-id="attachment"], [data-test-id="uploaded-file"], [data-test-id="file-preview"]').length;
 }
 
 async function waitForAttachmentPreviews(documentRoot: Document, expectedCount: number): Promise<void> {
@@ -267,7 +347,10 @@ function getAssistantMessages(documentRoot: Document): HTMLElement[] {
 }
 
 function getAssistantTextNode(assistant: HTMLElement): HTMLElement | undefined {
-  return assistant.querySelector<HTMLElement>("message-content, .model-response-text, .markdown") ?? undefined;
+  return assistant.querySelector<HTMLElement>(".markdown")
+    ?? assistant.querySelector<HTMLElement>("message-content")
+    ?? assistant.querySelector<HTMLElement>(".model-response-text")
+    ?? undefined;
 }
 
 async function readImage(image: HTMLImageElement): Promise<Uint8Array> {

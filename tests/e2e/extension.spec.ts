@@ -7,7 +7,11 @@ import { installNativeHost } from "../../src/native/installer";
 
 const extensionOutputDirectory: string = resolve("src/extension/.output/chrome-mv3");
 const chatgptFixture: string = `<!doctype html><html><head><title>ChatGPT fixture</title></head><body><main>fixture</main></body></html>`;
-const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture</title></head><body><main>fixture</main></body></html>`;
+const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture</title></head><body>
+<button data-test-id="bard-mode-menu-button">Flash</button>
+<gem-menu-item role="menuitem" data-mode-id="flash"><span class="label">Flash</span></gem-menu-item>
+<div role="textbox" contenteditable="true"></div>
+</body></html>`;
 
 let context: BrowserContext;
 let userDataDirectory: string;

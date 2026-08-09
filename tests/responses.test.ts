@@ -286,7 +286,7 @@ describe("non-streaming responses", (): void => {
       request_id: callJob.request_id,
       worker_id: callJob.worker_id,
       sequence: 1,
-      delta: '<web2api_function_calls>{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>'
+      delta: 'WEB2API_FUNCTION_CALLS_V1\n{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}\nWEB2API_FUNCTION_CALLS_END'
     } satisfies ExtensionToDaemonMessage));
     socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: callJob.request_id, worker_id: callJob.worker_id } satisfies ExtensionToDaemonMessage));
 

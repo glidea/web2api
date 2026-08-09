@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { cancelGeneration, getAssistantMessageCount, getCapabilities, isGeminiLoggedIn, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, waitForGeneratedImage, type ImagePayload } from "../lib/gemini-adapter";
+import { cancelGeneration, detectImageMediaType, enableImageGeneration, getAssistantMessageCount, getCapabilities, isGeminiLoggedIn, isGeminiUsable, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, waitForGeneratedImage, type ImagePayload } from "../lib/gemini-adapter";
 import type { Capabilities, ExtensionToDaemonMessage, JobCancelMessage, JobStartMessage } from "../../shared/protocol";
 
 export default defineContentScript({
@@ -22,14 +22,17 @@ export default defineContentScript({
 
 async function runJob(message: JobStartMessage): Promise<void> {
   try {
-    if (!isGeminiLoggedIn(document)) {
-      throw new Error("login_required");
+    if (!isGeminiUsable(document)) {
+      throw new Error("gemini_unavailable");
     }
     if (message.payload.model !== "gemini/default") {
       await selectModel(document, message.payload.model.slice("gemini/".length));
     }
     if (message.payload.reasoning_effort !== undefined) {
       await selectReasoningEffort(document, message.payload.reasoning_effort);
+    }
+    if (message.payload.generate_image === true) {
+      await enableImageGeneration(document);
     }
     if (message.payload.images !== undefined) {
       await uploadImages(document, message.payload.images.map(toImagePayload));
@@ -41,7 +44,7 @@ async function runJob(message: JobStartMessage): Promise<void> {
     await browser.runtime.sendMessage(bound);
     if (message.payload.generate_image === true) {
       const image: Uint8Array = await waitForGeneratedImage(document, previousMessageCount);
-      const completedImage: ExtensionToDaemonMessage = { version: 1, type: "job.image.completed", request_id: message.request_id, worker_id: message.worker_id, media_type: "image/png", data: encodeBase64(image) };
+      const completedImage: ExtensionToDaemonMessage = { version: 1, type: "job.image.completed", request_id: message.request_id, worker_id: message.worker_id, media_type: detectImageMediaType(image), data: encodeBase64(image) };
       await browser.runtime.sendMessage(completedImage);
     } else {
       let sequence: number = 0;
@@ -55,24 +58,22 @@ async function runJob(message: JobStartMessage): Promise<void> {
     await browser.runtime.sendMessage(completed);
   } catch (error: unknown) {
     const errorMessage: string = error instanceof Error ? error.message : String(error);
-    const code: string = errorMessage === "login_required" ? errorMessage : "adapter_error";
-    const failure: ExtensionToDaemonMessage = { version: 1, type: "job.failed", request_id: message.request_id, worker_id: message.worker_id, code, message: errorMessage };
+    const failure: ExtensionToDaemonMessage = { version: 1, type: "job.failed", request_id: message.request_id, worker_id: message.worker_id, code: "adapter_error", message: errorMessage };
     await browser.runtime.sendMessage(failure);
   }
 }
 
 async function reportContentReady(): Promise<void> {
-  const loggedIn: boolean = isGeminiLoggedIn(document);
-  await browser.runtime.sendMessage({
-    type: "web2api:content-ready",
-    provider: "gemini",
-    url: window.location.href,
-    loggedIn,
-    capabilities: { models: ["gemini/default"], reasoning_efforts: [] }
-  });
-  if (!loggedIn) {
-    return;
+  const deadline: number = Date.now() + 30_000;
+  while (!isGeminiUsable(document)) {
+    if (Date.now() >= deadline) {
+      return;
+    }
+    await new Promise<void>((resolve): void => {
+      setTimeout(resolve, 100);
+    });
   }
+  const loggedIn: boolean = isGeminiLoggedIn(document);
   const capabilities: { models: string[]; reasoningEfforts: string[] } = await getCapabilities(document);
   await browser.runtime.sendMessage({
     type: "web2api:content-ready",
@@ -108,7 +109,7 @@ function encodeBase64(bytes: Uint8Array): string {
 }
 
 async function waitForConversationId(): Promise<string> {
-  const deadline: number = Date.now() + 10_000;
+  const deadline: number = Date.now() + 30_000;
   while (Date.now() < deadline) {
     const conversationId: string | undefined = parseConversationId(window.location.href);
     if (conversationId !== undefined) {

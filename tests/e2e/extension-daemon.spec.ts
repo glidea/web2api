@@ -10,7 +10,12 @@ type DaemonProcess = ChildProcessByStdio<null, Readable, Readable>;
 const port: number = 3210;
 const outputDirectory: string = resolve("src/extension/.output/chrome-mv3");
 const chatGptFixture: string = "<!doctype html><html><head><title>ChatGPT fixture</title></head><body><main>fixture</main></body></html>";
-const geminiFixture: string = '<!doctype html><html><head><title>Gemini fixture</title></head><body><a href="https://accounts.google.com/SignOutOptions">Account</a><main>fixture</main></body></html>';
+const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture</title></head><body>
+<a href="https://accounts.google.com/SignOutOptions">Account</a>
+<button data-test-id="bard-mode-menu-button">Flash</button>
+<gem-menu-item role="menuitem" data-mode-id="flash"><span class="label">Flash</span></gem-menu-item>
+<div role="textbox" contenteditable="true"></div>
+</body></html>`;
 let context: BrowserContext;
 let userDataDirectory: string;
 let configDirectory: string;
@@ -48,9 +53,11 @@ async function startDaemon(): Promise<void> {
 
 async function waitForReady(): Promise<void> {
   const deadline: number = Date.now() + 10_000;
+  let lastBody: { extension_connected: boolean; workers_ready: number } | undefined;
   while (Date.now() < deadline) {
     const response: Response = await fetch(`http://127.0.0.1:${port}/healthz`);
     const body: { extension_connected: boolean; workers_ready: number } = await response.json() as { extension_connected: boolean; workers_ready: number };
+    lastBody = body;
     if (body.extension_connected && body.workers_ready === 4) {
       return;
     }
@@ -58,7 +65,7 @@ async function waitForReady(): Promise<void> {
       setTimeout(resolvePromise, 100);
     });
   }
-  throw new Error("extension worker did not become ready");
+  throw new Error(`extension worker did not become ready: ${JSON.stringify(lastBody)}`);
 }
 
 test.beforeAll(async (): Promise<void> => {
@@ -74,6 +81,21 @@ test.beforeAll(async (): Promise<void> => {
   await context.route("https://gemini.google.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: geminiFixture });
   });
+  const deadline: number = Date.now() + 10_000;
+  let providerPages: Page[] = [];
+  while (Date.now() < deadline) {
+    providerPages = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/") || candidate.url().startsWith("https://gemini.google.com/"));
+    if (providerPages.length === 4) {
+      break;
+    }
+    await new Promise<void>((resolvePromise): void => {
+      setTimeout(resolvePromise, 100);
+    });
+  }
+  expect(providerPages).toHaveLength(4);
+  for (const providerPage of providerPages) {
+    await providerPage.reload();
+  }
 });
 
 test.afterAll(async (): Promise<void> => {

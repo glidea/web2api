@@ -22,7 +22,7 @@ document.querySelector('[data-testid=send-button]').addEventListener('click', ()
     const assistant = document.createElement('div');
     assistant.dataset.messageAuthorRole = 'assistant';
     assistant.textContent = composer.value.includes('WEB2API FUNCTION PROTOCOL V1')
-      ? '<web2api_function_calls>{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>'
+      ? 'WEB2API_FUNCTION_CALLS_V1\\n{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}\\nWEB2API_FUNCTION_CALLS_END'
       : composer.value === 'hello' ? 'hello from fixture' : startingPath;
     document.body.append(assistant);
   }, 100);
@@ -33,12 +33,17 @@ const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture<
 <button data-test-id="bard-mode-menu-button" aria-expanded="true">Flash</button>
 <gem-menu-item role="menuitem" data-mode-id="flash"><span class="label">3.6 Flash</span></gem-menu-item>
 <gem-menu-item role="menuitem"><span class="label">Extended thinking</span></gem-menu-item>
+<button aria-label="Upload and tools" aria-expanded="true">Tools</button>
+<button role="menuitemcheckbox" aria-checked="false"><span data-mat-icon-name="image_create"></span>Image</button>
 <input class="hidden-file-input" type="file" multiple>
 <div id="attachment-previews"></div>
 <div class="ql-editor" role="textbox" contenteditable="true"></div>
 <button aria-label="Send"><span data-mat-icon-name="send"></span></button>
 <script>
 const uploadInput = document.querySelector('input[type=file]');
+document.querySelector('button[role=menuitemcheckbox]').addEventListener('click', (event) => {
+  event.currentTarget.setAttribute('aria-checked', 'true');
+});
 uploadInput.addEventListener('change', () => {
   const previews = document.querySelector('#attachment-previews');
   for (const file of Array.from(uploadInput.files || [])) {
@@ -66,7 +71,7 @@ document.querySelector('button[aria-label=Send]').addEventListener('click', () =
       message.textContent = 'Gemini says 21 degrees.';
       assistant.append(message);
     } else if (prompt.includes('WEB2API FUNCTION PROTOCOL V1')) {
-      message.textContent = '<web2api_function_calls>{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>';
+      message.textContent = 'WEB2API_FUNCTION_CALLS_V1\\n{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}\\nWEB2API_FUNCTION_CALLS_END';
       assistant.append(message);
     } else if (prompt === 'describe attachments') {
       message.textContent = attachmentTypes.join(',');

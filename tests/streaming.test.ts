@@ -120,8 +120,8 @@ describe("streaming responses", (): void => {
       throw new Error(`expected job.start, got ${job.type}`);
     }
     socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: job.request_id, worker_id: job.worker_id, conversation_id: "conv-tool-stream" } satisfies ExtensionToDaemonMessage));
-    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 1, delta: '<web2api_function_calls>{"calls":[{"call_id":"call_weather",' } satisfies ExtensionToDaemonMessage));
-    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 2, delta: '"name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>' } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 1, delta: 'WEB2API_FUNCTION_CALLS_V1\n{"calls":[{"call_id":"call_weather",' } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 2, delta: '"name":"get_weather","arguments":{"city":"Paris"}}]}\nWEB2API_FUNCTION_CALLS_END' } satisfies ExtensionToDaemonMessage));
     socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: job.request_id, worker_id: job.worker_id } satisfies ExtensionToDaemonMessage));
 
     const response: Response = await responsePromise;
@@ -152,7 +152,7 @@ describe("streaming responses", (): void => {
       throw new Error(`expected job.start, got ${job.type}`);
     }
     socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: job.request_id, worker_id: job.worker_id, conversation_id: "conv-tool-error" } satisfies ExtensionToDaemonMessage));
-    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 1, delta: "<web2api_function_calls>not-json</web2api_function_calls>" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 1, delta: "WEB2API_FUNCTION_CALLS_V1\nnot-json\nWEB2API_FUNCTION_CALLS_END" } satisfies ExtensionToDaemonMessage));
     socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: job.request_id, worker_id: job.worker_id } satisfies ExtensionToDaemonMessage));
 
     const response: Response = await responsePromise;

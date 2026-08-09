@@ -359,7 +359,7 @@ async function ensureWorkerTabs(provider: Provider, tabCount: number): Promise<v
     if (workerTabs.has(workerId)) {
       continue;
     }
-    const createdTab: unknown = await browser.tabs.create({ url: providerHomeUrl(provider), active: false });
+    const createdTab: unknown = await browser.tabs.create({ url: "about:blank", active: false });
     if (typeof createdTab !== "object" || createdTab === null) {
       throw new Error("worker tab has no id");
     }
@@ -367,7 +367,9 @@ async function ensureWorkerTabs(provider: Provider, tabCount: number): Promise<v
     if (typeof tabRecord["id"] !== "number") {
       throw new Error("worker tab has no id");
     }
-    workerTabs.set(workerId, tabRecord["id"]);
+    const tabId: number = tabRecord["id"];
+    workerTabs.set(workerId, tabId);
+    await browser.tabs.update(tabId, { url: providerHomeUrl(provider) });
   }
 }
 

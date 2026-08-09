@@ -63,8 +63,8 @@
 ## 验收测试步骤
 1. 运行 `pnpm vitest run tests/gemini-adapter.test.ts`
 2. fixture 中切换模型后，断言页面真实选项发生变化再提交 prompt
-3. 断言文本 delta 只增不退，图片结果可解码为 PNG
-4. 缺少登录态或模型不可用时明确失败，不提交 prompt
+3. 断言文本 delta 只增不退，图片结果可识别为 PNG 或 JPEG
+4. 页面输入能力不可用或模型不可用时明确失败，不提交 prompt；账号登录状态只用于状态展示
 
 ---
 
@@ -160,9 +160,9 @@ popup 分别展示 ChatGPT、Gemini 的登录、Content Script、worker、模型
 ## TODO 清单
 - [x] 1. 新增 Gemini profile setup 命令和 profile 路径约定
 - [x] 2. 新增真实 Gemini smoke Playwright 套件
-- [ ] 3. 验证动态模型发现与一次真实模型切换
+- [x] 3. 验证动态模型发现与一次真实模型切换
 - [ ] 4. 验证文本、流式、多轮、图片输入、图片生成和函数调用
-- [ ] 5. 根据真实 DOM 修正选择器，并同步回归 fixture
+- [x] 5. 根据真实 DOM 修正选择器，并同步回归 fixture
 - [x] 6. 在 `AGENTS.md` 记录真实 Gemini smoke 的凭据隔离规则
 
 ## 验收测试步骤
@@ -202,7 +202,8 @@ popup 分别展示 ChatGPT、Gemini 的登录、Content Script、worker、模型
 
 ## 2026-08-09 验收记录
 
-- 自动化通过：71 个 Vitest、TypeScript、3 个 extension E2E、1 个 daemon E2E、4 个 Responses E2E
+- 自动化通过：85 个 Vitest、TypeScript、3 个 extension E2E、1 个 daemon E2E、4 个 Responses E2E
 - `npm pack --dry-run` 通过，发布包只有 README、CLI、daemon bundle 和 package metadata
-- 真实 Gemini smoke 在登录门槛失败：专用 profile 页面仍返回 `/ServiceLogin`，后续动态模型和七项真实能力未执行
-- 已认证页面的账号控件、模型菜单和附件选择器仍需真实 smoke 验证，当前不得把 Gemini 集成标记为发布完成
+- 真实 Gemini smoke 为 4 项通过、1 项跳过：动态模型发现与切换、文本、流式、多轮、图片输入和函数调用已通过本地 `/v1/responses` 验证
+- 图片生成因专用扩展 profile 当前页面未显示图片工具而跳过；已登录的 In App Browser 真实页面已验证 `image_create` 工具和 1024x559 blob 图片生成，但该结果未经过扩展 `/v1/responses` 链路
+- 测试日志未记录 Cookie、token 或图片原始内容；Task-006 第 4 项和 Gemini 发布验收仍未完成
