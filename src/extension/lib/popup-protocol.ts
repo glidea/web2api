@@ -1,17 +1,22 @@
+import type { Provider } from "../../shared/protocol";
+
+export type PopupProviderStatus = {
+  contentScriptReady: boolean;
+  workerReady: boolean;
+  loggedIn?: boolean;
+  models: string[];
+  reasoningEfforts: string[];
+  tabs?: number;
+};
+
 export type PopupStatus = {
   nativeHostInstalled: boolean;
   nativeHostError?: string;
   daemonRunning: boolean;
   daemonConnected: boolean;
-  workerReady: boolean;
-  contentScriptReady: boolean;
-  chatGptLoggedIn?: boolean;
-  models: string[];
-  reasoningEfforts: string[];
   baseUrl?: string;
   apiKey?: string;
-  chatGptTabs?: number;
-  geminiTabs?: number;
+  providers: Record<Provider, PopupProviderStatus>;
   installCommand: string;
 };
 

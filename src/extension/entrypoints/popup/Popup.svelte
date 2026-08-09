@@ -24,11 +24,11 @@
   async function loadStatus(): Promise<void> {
     const nextStatus: PopupStatus = await send({ type: "web2api:popup", action: "status" });
     status = nextStatus;
-    if (nextStatus.chatGptTabs !== undefined) {
-      chatGptTabs = nextStatus.chatGptTabs;
+    if (nextStatus.providers.chatgpt.tabs !== undefined) {
+      chatGptTabs = nextStatus.providers.chatgpt.tabs;
     }
-    if (nextStatus.geminiTabs !== undefined) {
-      geminiTabs = nextStatus.geminiTabs;
+    if (nextStatus.providers.gemini.tabs !== undefined) {
+      geminiTabs = nextStatus.providers.gemini.tabs;
     }
   }
 
@@ -36,11 +36,11 @@
     busy = true;
     try {
       status = await send(request);
-      if (status.chatGptTabs !== undefined) {
-        chatGptTabs = status.chatGptTabs;
+      if (status.providers.chatgpt.tabs !== undefined) {
+        chatGptTabs = status.providers.chatgpt.tabs;
       }
-      if (status.geminiTabs !== undefined) {
-        geminiTabs = status.geminiTabs;
+      if (status.providers.gemini.tabs !== undefined) {
+        geminiTabs = status.providers.gemini.tabs;
       }
     } finally {
       busy = false;
@@ -70,7 +70,7 @@
   <header>
     <div>
       <h1>Web2API</h1>
-      <p class="subtitle">ChatGPT local API</p>
+      <p class="subtitle">Browser AI local API</p>
     </div>
     {#if status?.nativeHostInstalled}
       <span class:online={status.daemonConnected} class="status-dot" title={status.daemonConnected ? "Connected" : "Disconnected"}></span>
@@ -93,7 +93,6 @@
         <RefreshCw size={15} />
         Check again
       </button>
-      <p class="content-state">Content script {status.contentScriptReady ? "ready" : "unavailable"}</p>
     </section>
   {:else}
     <section>
@@ -144,7 +143,7 @@
       <div class="section-heading tabs-heading">
         <div>
           <label for="chatgpt-tabs">ChatGPT tabs</label>
-          <p>Worker: {status.workerReady ? "Ready" : "Unavailable"}</p>
+          <p>Worker: {status.providers.chatgpt.workerReady ? "Ready" : "Unavailable"}</p>
         </div>
         <div class="number-control">
           <input id="chatgpt-tabs" type="number" min="1" max="8" bind:value={chatGptTabs} />
@@ -153,6 +152,7 @@
       <div class="section-heading tabs-heading">
         <div>
           <label for="gemini-tabs">Gemini tabs</label>
+          <p>Worker: {status.providers.gemini.workerReady ? "Ready" : "Unavailable"}</p>
         </div>
         <div class="number-control">
           <input id="gemini-tabs" type="number" min="1" max="8" bind:value={geminiTabs} />
@@ -161,16 +161,25 @@
           </button>
         </div>
       </div>
-      <p class="content-state">Content script {status.contentScriptReady ? "ready" : "unavailable"}</p>
     </section>
   {/if}
 
   {#if status !== undefined}
-    <section class="diagnostics">
+    <section class="diagnostics" aria-label="ChatGPT status">
       <h2>ChatGPT</h2>
-      <p>ChatGPT {status.chatGptLoggedIn === undefined ? "Checking" : status.chatGptLoggedIn ? "Logged in" : "Sign-in required"}</p>
-      <p>Models {status.models.length === 0 ? "Unavailable" : status.models.join(", ")}</p>
-      <p>Reasoning {status.reasoningEfforts.length === 0 ? "Unavailable" : status.reasoningEfforts.join(", ")}</p>
+      <p>Session {status.providers.chatgpt.loggedIn === undefined ? "Checking" : status.providers.chatgpt.loggedIn ? "Logged in" : "Sign-in required"}</p>
+      <p>Content script {status.providers.chatgpt.contentScriptReady ? "Ready" : "Unavailable"}</p>
+      <p>Worker {status.providers.chatgpt.workerReady ? "Ready" : "Unavailable"}</p>
+      <p>Models {status.providers.chatgpt.models.length === 0 ? "Unavailable" : status.providers.chatgpt.models.join(", ")}</p>
+      <p>Reasoning {status.providers.chatgpt.reasoningEfforts.length === 0 ? "Unavailable" : status.providers.chatgpt.reasoningEfforts.join(", ")}</p>
+    </section>
+    <section class="diagnostics" aria-label="Gemini status">
+      <h2>Gemini</h2>
+      <p>Session {status.providers.gemini.loggedIn === undefined ? "Checking" : status.providers.gemini.loggedIn ? "Logged in" : "Sign-in required"}</p>
+      <p>Content script {status.providers.gemini.contentScriptReady ? "Ready" : "Unavailable"}</p>
+      <p>Worker {status.providers.gemini.workerReady ? "Ready" : "Unavailable"}</p>
+      <p>Models {status.providers.gemini.models.length === 0 ? "Unavailable" : status.providers.gemini.models.join(", ")}</p>
+      <p>Reasoning {status.providers.gemini.reasoningEfforts.length === 0 ? "Unavailable" : status.providers.gemini.reasoningEfforts.join(", ")}</p>
     </section>
   {/if}
 </main>
@@ -226,7 +235,6 @@
   .section-heading p,
   .install > p,
   .diagnostics p,
-  .content-state,
   .loading {
     margin-top: 3px;
     color: #71717a;
@@ -389,10 +397,6 @@
   .number-control input {
     width: 58px;
     flex: none;
-  }
-
-  .content-state {
-    margin-top: 10px;
   }
 
   :global(.spinning) {

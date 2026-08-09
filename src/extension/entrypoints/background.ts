@@ -2,7 +2,7 @@ import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import type { Capabilities, ExtensionHelloMessage, HeartbeatMessage, WorkerReadyMessage, WorkerUnhealthyMessage, DaemonToExtensionMessage, ExtensionToDaemonMessage, JobStartMessage, Provider } from "../../shared/protocol";
 import type { NativeHostRequest, NativeHostResponse, NativeHostStatus } from "../../shared/native-protocol";
-import type { PopupRequest, PopupStatus } from "../lib/popup-protocol";
+import type { PopupProviderStatus, PopupRequest, PopupStatus } from "../lib/popup-protocol";
 
 type ContentReadyMessage = {
   type: "web2api:content-ready";
@@ -10,6 +10,12 @@ type ContentReadyMessage = {
   url: string;
   loggedIn: boolean;
   capabilities?: Capabilities;
+};
+
+type ProviderUiState = {
+  contentScriptReady: boolean;
+  loggedIn: boolean | undefined;
+  capabilities: Capabilities;
 };
 
 const nativeHostName: string = "dev.glidea.web2api";
@@ -22,10 +28,10 @@ let apiKey: string | undefined;
 let configuredChatGptTabs: number = 0;
 let configuredGeminiTabs: number = 0;
 let shouldReconnect: boolean = true;
-let contentScriptReady: boolean = false;
-let workerReady: boolean = false;
-let chatGptLoggedIn: boolean | undefined;
-let chatGptCapabilities: Capabilities = { models: [], reasoning_efforts: [] };
+const providerUiStates: Record<Provider, ProviderUiState> = {
+  chatgpt: { contentScriptReady: false, loggedIn: undefined, capabilities: { models: [], reasoning_efforts: [] } },
+  gemini: { contentScriptReady: false, loggedIn: undefined, capabilities: { models: [], reasoning_efforts: [] } }
+};
 const workerTabs: Map<string, number> = new Map<string, number>();
 const readyWorkers: Set<string> = new Set<string>();
 const workerCapabilities: Map<string, Capabilities> = new Map<string, Capabilities>();
@@ -47,7 +53,6 @@ export default defineBackground((): void => {
         sendWorkerUnhealthy(workerId, "worker_tab_closed");
       }
     }
-    workerReady = readyWorkers.size > 0;
     if (removedProvider !== undefined && shouldReconnect) {
       void ensureWorkerTabs(removedProvider, configuredTabCount(removedProvider));
     }
@@ -156,9 +161,31 @@ function applyNativeStatus(status: NativeHostStatus): void {
 }
 
 function popupStatus(): PopupStatus {
-  const models: Set<string> = new Set<string>(chatGptCapabilities.models);
-  const reasoningEfforts: Set<string> = new Set<string>(chatGptCapabilities.reasoning_efforts);
-  for (const capabilities of workerCapabilities.values()) {
+  return {
+    nativeHostInstalled,
+    nativeHostError,
+    daemonRunning,
+    daemonConnected,
+    baseUrl: nativeHostInstalled ? `${daemonBaseUrl}/v1` : undefined,
+    apiKey,
+    providers: {
+      chatgpt: providerPopupStatus("chatgpt", nativeHostInstalled ? configuredChatGptTabs : undefined),
+      gemini: providerPopupStatus("gemini", nativeHostInstalled ? configuredGeminiTabs : undefined)
+    },
+    installCommand: `npx -y glidea-web2api@latest install --extension-id ${browser.runtime.id}`
+  };
+}
+
+function providerPopupStatus(provider: Provider, tabs: number | undefined): PopupProviderStatus {
+  const state: ProviderUiState = providerUiStates[provider];
+  const models: Set<string> = new Set<string>(state.capabilities.models);
+  const reasoningEfforts: Set<string> = new Set<string>(state.capabilities.reasoning_efforts);
+  let workerReady: boolean = false;
+  for (const [workerId, capabilities] of workerCapabilities.entries()) {
+    if (providerFromWorkerId(workerId) !== provider) {
+      continue;
+    }
+    workerReady = workerReady || readyWorkers.has(workerId);
     for (const model of capabilities.models) {
       models.add(model);
     }
@@ -167,20 +194,12 @@ function popupStatus(): PopupStatus {
     }
   }
   return {
-    nativeHostInstalled,
-    nativeHostError,
-    daemonRunning,
-    daemonConnected,
+    contentScriptReady: state.contentScriptReady,
     workerReady,
-    contentScriptReady,
-    chatGptLoggedIn,
+    loggedIn: state.loggedIn,
     models: Array.from(models),
     reasoningEfforts: Array.from(reasoningEfforts),
-    baseUrl: nativeHostInstalled ? `${daemonBaseUrl}/v1` : undefined,
-    apiKey,
-    chatGptTabs: nativeHostInstalled ? configuredChatGptTabs : undefined,
-    geminiTabs: nativeHostInstalled ? configuredGeminiTabs : undefined,
-    installCommand: `npx -y glidea-web2api@latest install --extension-id ${browser.runtime.id}`
+    tabs
   };
 }
 
@@ -273,12 +292,11 @@ function clearHeartbeat(): void {
 }
 
 async function handleContentReady(message: ContentReadyMessage, tabId: number | undefined): Promise<undefined> {
-  contentScriptReady = true;
-  if (message.provider === "chatgpt") {
-    chatGptLoggedIn = message.loggedIn;
-    if (message.capabilities !== undefined) {
-      chatGptCapabilities = message.capabilities;
-    }
+  const providerState: ProviderUiState = providerUiStates[message.provider];
+  providerState.contentScriptReady = true;
+  providerState.loggedIn = message.loggedIn;
+  if (message.capabilities !== undefined) {
+    providerState.capabilities = message.capabilities;
   }
   const workerId: string | undefined = findWorkerId(tabId);
   if (workerId === undefined || providerFromWorkerId(workerId) !== message.provider) {
@@ -294,7 +312,6 @@ async function handleContentReady(message: ContentReadyMessage, tabId: number | 
     return undefined;
   }
   readyWorkers.add(workerId);
-  workerReady = true;
   sendWorkerReady(workerId);
   return undefined;
 }
@@ -312,7 +329,6 @@ async function dispatchJob(message: JobStartMessage): Promise<void> {
   }
   pendingWorkerJobs.set(message.worker_id, message);
   readyWorkers.delete(message.worker_id);
-  workerReady = readyWorkers.size > 0;
   await browser.tabs.update(workerTabId, { url: targetUrl });
 }
 
@@ -361,8 +377,6 @@ async function closeWorkerTabs(): Promise<void> {
   readyWorkers.clear();
   workerCapabilities.clear();
   pendingWorkerJobs.clear();
-  workerReady = false;
-  contentScriptReady = false;
   if (tabIds.length > 0) {
     await browser.tabs.remove(tabIds);
   }

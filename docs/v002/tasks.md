@@ -133,11 +133,11 @@ popup 分别展示 ChatGPT、Gemini 的登录、Content Script、worker、模型
 - 历史配置迁移提示
 
 ## TODO 清单
-- [ ] 1. 更新 popup typed protocol 和 background 状态聚合
-- [ ] 2. 分别展示两个 Provider 的运行状态和动态模型
-- [ ] 3. 提供两个独立的标签页数量输入
-- [ ] 4. 保存配置后重启 daemon 并按新数量重建两个 worker 池
-- [ ] 5. 保持 API Base URL、API key 和 daemon 控制入口不变
+- [x] 1. 更新 popup typed protocol 和 background 状态聚合
+- [x] 2. 分别展示两个 Provider 的运行状态和动态模型
+- [x] 3. 提供两个独立的标签页数量输入
+- [x] 4. 保存配置后重启 daemon 并按新数量重建两个 worker 池
+- [x] 5. 保持 API Base URL、API key 和 daemon 控制入口不变
 
 ## 验收测试步骤
 1. 运行 `pnpm test:e2e:extension`

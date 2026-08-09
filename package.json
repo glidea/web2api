@@ -31,7 +31,7 @@
     "build:daemon": "esbuild src/daemon/cli.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/glidea-web2api.cjs",
     "prepare:extension": "wxt prepare src/extension",
     "build:extension": "wxt build src/extension --mv3",
-    "test:e2e:extension": "pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/extension.spec.ts",
+    "test:e2e:extension": "pnpm build:daemon && pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/extension.spec.ts",
     "test:e2e:extension-daemon": "pnpm build:extension && WEB2API_EXTENSION_DAEMON_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-daemon.spec.ts",
     "test:e2e:extension-responses": "pnpm build:extension && WEB2API_EXTENSION_RESPONSES_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-responses.spec.ts",
     "test:smoke:chatgpt:setup": "pnpm build:extension && tsx scripts/setup-chatgpt-profile.ts",
