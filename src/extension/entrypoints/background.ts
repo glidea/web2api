@@ -1,11 +1,12 @@
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
-import type { Capabilities, ExtensionHelloMessage, HeartbeatMessage, WorkerReadyMessage, WorkerUnhealthyMessage, DaemonToExtensionMessage, ExtensionToDaemonMessage, JobStartMessage } from "../../shared/protocol";
+import type { Capabilities, ExtensionHelloMessage, HeartbeatMessage, WorkerReadyMessage, WorkerUnhealthyMessage, DaemonToExtensionMessage, ExtensionToDaemonMessage, JobStartMessage, Provider } from "../../shared/protocol";
 import type { NativeHostRequest, NativeHostResponse, NativeHostStatus } from "../../shared/native-protocol";
 import type { PopupRequest, PopupStatus } from "../lib/popup-protocol";
 
 type ContentReadyMessage = {
   type: "web2api:content-ready";
+  provider: Provider;
   url: string;
   loggedIn: boolean;
   capabilities?: Capabilities;
@@ -18,7 +19,8 @@ let daemonRunning: boolean = false;
 let daemonConnected: boolean = false;
 let daemonBaseUrl: string = "http://127.0.0.1:3210";
 let apiKey: string | undefined;
-let configuredMaxTabs: number = 0;
+let configuredChatGptTabs: number = 0;
+let configuredGeminiTabs: number = 0;
 let shouldReconnect: boolean = true;
 let contentScriptReady: boolean = false;
 let workerReady: boolean = false;
@@ -44,8 +46,8 @@ export default defineBackground((): void => {
       }
     }
     workerReady = readyWorkers.size > 0;
-    if (configuredMaxTabs > 0 && shouldReconnect) {
-      void ensureWorkerTabs(configuredMaxTabs);
+    if (configuredChatGptTabs > 0 && shouldReconnect) {
+      void ensureChatGptWorkerTabs(configuredChatGptTabs);
     }
   });
   browser.runtime.onMessage.addListener((message: unknown, sender): Promise<PopupStatus | undefined> => {
@@ -112,7 +114,7 @@ async function handlePopupRequest(request: PopupRequest): Promise<PopupStatus> {
     }
     case "configure": {
       shouldReconnect = true;
-      const response: NativeHostStatus = await sendNativeControl({ type: "configure", protocol_version: 1, max_tabs: request.maxTabs });
+      const response: NativeHostStatus = await sendNativeControl({ type: "configure", protocol_version: 1, chatgpt_tabs: request.chatGptTabs, gemini_tabs: request.geminiTabs });
       applyNativeStatus(response);
       disconnectFromDaemon();
       await connectToDaemon();
@@ -147,7 +149,8 @@ function applyNativeStatus(status: NativeHostStatus): void {
   daemonRunning = status.daemon === "running";
   daemonBaseUrl = status.base_url;
   apiKey = status.api_key;
-  configuredMaxTabs = status.max_tabs;
+  configuredChatGptTabs = status.chatgpt_tabs;
+  configuredGeminiTabs = status.gemini_tabs;
 }
 
 function popupStatus(): PopupStatus {
@@ -173,7 +176,8 @@ function popupStatus(): PopupStatus {
     reasoningEfforts: Array.from(reasoningEfforts),
     baseUrl: nativeHostInstalled ? `${daemonBaseUrl}/v1` : undefined,
     apiKey,
-    maxTabs: nativeHostInstalled ? configuredMaxTabs : undefined,
+    chatGptTabs: nativeHostInstalled ? configuredChatGptTabs : undefined,
+    geminiTabs: nativeHostInstalled ? configuredGeminiTabs : undefined,
     installCommand: `npx -y glidea-web2api@latest install --extension-id ${browser.runtime.id}`
   };
 }
@@ -204,8 +208,9 @@ async function connectToDaemon(): Promise<void> {
     const message: DaemonToExtensionMessage = JSON.parse(event.data) as DaemonToExtensionMessage;
     switch (message.type) {
       case "extension.configure":
-        configuredMaxTabs = message.max_tabs;
-        void ensureWorkerTabs(message.max_tabs);
+        configuredChatGptTabs = message.chatgpt_tabs;
+        configuredGeminiTabs = message.gemini_tabs;
+        void ensureChatGptWorkerTabs(message.chatgpt_tabs);
         break;
       case "job.start":
         void dispatchJob(message);
@@ -266,6 +271,9 @@ function clearHeartbeat(): void {
 }
 
 async function handleContentReady(message: ContentReadyMessage, tabId: number | undefined): Promise<undefined> {
+  if (message.provider !== "chatgpt") {
+    return undefined;
+  }
   contentScriptReady = true;
   chatGptLoggedIn = message.loggedIn;
   if (message.capabilities !== undefined) {
@@ -315,18 +323,18 @@ function sameChatPage(currentUrl: string, targetUrl: string): boolean {
   return current.origin === target.origin && current.pathname === target.pathname;
 }
 
-async function ensureWorkerTabs(maxTabs: number): Promise<void> {
+async function ensureChatGptWorkerTabs(tabCount: number): Promise<void> {
   for (const [workerId, tabId] of workerTabs.entries()) {
-    const index: number = Number(workerId.slice("worker-".length));
-    if (index > maxTabs) {
+    const index: number = Number(workerId.slice("chatgpt-worker-".length));
+    if (index > tabCount) {
       workerTabs.delete(workerId);
       readyWorkers.delete(workerId);
       workerCapabilities.delete(workerId);
       await browser.tabs.remove(tabId);
     }
   }
-  for (let index: number = 1; index <= maxTabs; index += 1) {
-    const workerId: string = `worker-${index}`;
+  for (let index: number = 1; index <= tabCount; index += 1) {
+    const workerId: string = `chatgpt-worker-${index}`;
     if (workerTabs.has(workerId)) {
       continue;
     }
@@ -359,6 +367,7 @@ function sendWorkerReady(workerId: string): void {
   const message: WorkerReadyMessage = {
     version: 1,
     type: "worker.ready",
+    provider: "chatgpt",
     worker_id: workerId,
     capabilities: workerCapabilities.get(workerId) ?? { models: ["chatgpt/default"], reasoning_efforts: [] }
   };
@@ -402,7 +411,7 @@ function isContentReadyMessage(message: unknown): message is ContentReadyMessage
     return false;
   }
   const value: Record<string, unknown> = message as Record<string, unknown>;
-  return value["type"] === "web2api:content-ready" && typeof value["url"] === "string" && typeof value["loggedIn"] === "boolean";
+  return value["type"] === "web2api:content-ready" && value["provider"] === "chatgpt" && typeof value["url"] === "string" && typeof value["loggedIn"] === "boolean";
 }
 
 function isPopupRequest(message: unknown): message is PopupRequest {
@@ -420,7 +429,7 @@ function isPopupRequest(message: unknown): message is PopupRequest {
     case "restart":
       return true;
     case "configure":
-      return typeof value["maxTabs"] === "number";
+      return typeof value["chatGptTabs"] === "number" && typeof value["geminiTabs"] === "number";
     default:
       return false;
   }

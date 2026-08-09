@@ -33,7 +33,7 @@ test.beforeAll(async (): Promise<void> => {
   test.setTimeout(660_000);
   configDirectory = await mkdtemp(join(tmpdir(), "web2api-chatgpt-smoke-"));
   const configPath: string = join(configDirectory, "config.json");
-  await writeFile(configPath, `${JSON.stringify({ api_key: apiKey, port, max_tabs: 2 }, null, 2)}\n`);
+  await writeFile(configPath, `${JSON.stringify({ api_key: apiKey, port, chatgpt_tabs: 2, gemini_tabs: 2 }, null, 2)}\n`);
   daemon = spawn("pnpm", ["exec", "tsx", "src/daemon/cli.ts", "start", "--config", configPath], {
     cwd: process.cwd(),
     env: process.env,

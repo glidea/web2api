@@ -1,10 +1,10 @@
-import type { DaemonConfig } from "../daemon/config";
+import type { ConfigOverrides, DaemonConfig } from "../daemon/config";
 import type { NativeHostRequest, NativeHostResponse } from "../shared/native-protocol";
 
 export type NativeControllerDependencies = {
   configPath: string;
   runtimePath: string;
-  loadConfig: (maxTabs?: number) => Promise<DaemonConfig>;
+  loadConfig: (overrides?: ConfigOverrides) => Promise<DaemonConfig>;
   isRunning: (config: DaemonConfig) => Promise<boolean>;
   start: (config: DaemonConfig) => Promise<void>;
   stop: (config: DaemonConfig) => Promise<void>;
@@ -32,10 +32,10 @@ export async function handleNativeRequest(request: NativeHostRequest, dependenci
       return statusResponse(config, "stopped");
     }
     case "configure": {
-      if (!Number.isInteger(request.max_tabs) || request.max_tabs < 1 || request.max_tabs > 8) {
-        return { ok: false, protocol_version: 1, code: "invalid_max_tabs", message: "max_tabs must be an integer between 1 and 8" };
+      if (!validTabCount(request.chatgpt_tabs) || !validTabCount(request.gemini_tabs)) {
+        return { ok: false, protocol_version: 1, code: "invalid_tab_count", message: "tab counts must be integers between 1 and 8" };
       }
-      const config: DaemonConfig = await dependencies.loadConfig(request.max_tabs);
+      const config: DaemonConfig = await dependencies.loadConfig({ chatGptTabs: request.chatgpt_tabs, geminiTabs: request.gemini_tabs });
       if (await dependencies.isRunning(config)) {
         await dependencies.stop(config);
       }
@@ -45,6 +45,10 @@ export async function handleNativeRequest(request: NativeHostRequest, dependenci
   }
 }
 
+function validTabCount(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 8;
+}
+
 function statusResponse(config: DaemonConfig, daemon: "running" | "stopped"): NativeHostResponse {
   return {
     ok: true,
@@ -52,6 +56,7 @@ function statusResponse(config: DaemonConfig, daemon: "running" | "stopped"): Na
     daemon,
     base_url: `http://127.0.0.1:${config.port}`,
     api_key: config.api_key,
-    max_tabs: config.max_tabs
+    chatgpt_tabs: config.chatgpt_tabs,
+    gemini_tabs: config.gemini_tabs
   };
 }

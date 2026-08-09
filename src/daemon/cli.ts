@@ -121,7 +121,7 @@ function nativeControllerDependencies(): NativeControllerDependencies {
   return {
     configPath,
     runtimePath,
-    loadConfig: async (maxTabs?: number): Promise<DaemonConfig> => loadOrCreateConfig(configPath, { maxTabs }),
+    loadConfig: async (overrides?: ConfigOverrides): Promise<DaemonConfig> => loadOrCreateConfig(configPath, overrides ?? {}),
     isRunning: isDaemonRunning,
     start: async (config: DaemonConfig): Promise<void> => startDetachedDaemon(config, configPath),
     stop: stopDaemon
@@ -183,7 +183,8 @@ async function waitForDaemon(config: DaemonConfig, running: boolean): Promise<vo
 function parseDaemonOptions(argumentsList: string[]): CliOptions {
   let configPath: string = defaultConfigPath();
   let port: number | undefined;
-  let maxTabs: number | undefined;
+  let chatGptTabs: number | undefined;
+  let geminiTabs: number | undefined;
   for (let index: number = 0; index < argumentsList.length; index += 1) {
     const argument: string | undefined = argumentsList[index];
     switch (argument) {
@@ -195,15 +196,19 @@ function parseDaemonOptions(argumentsList: string[]): CliOptions {
         port = Number(requireValue(argumentsList, index, argument));
         index += 1;
         break;
-      case "--max-tabs":
-        maxTabs = Number(requireValue(argumentsList, index, argument));
+      case "--chatgpt-tabs":
+        chatGptTabs = Number(requireValue(argumentsList, index, argument));
+        index += 1;
+        break;
+      case "--gemini-tabs":
+        geminiTabs = Number(requireValue(argumentsList, index, argument));
         index += 1;
         break;
       default:
         throw new Error(`unknown option: ${argument}`);
     }
   }
-  return { configPath, overrides: { port, maxTabs } };
+  return { configPath, overrides: { port, chatGptTabs, geminiTabs } };
 }
 
 function parseExtensionId(argumentsList: string[]): string {
@@ -235,7 +240,7 @@ function isNativeHostRequest(value: unknown): value is NativeHostRequest {
     case "stop":
       return true;
     case "configure":
-      return typeof record["max_tabs"] === "number";
+      return typeof record["chatgpt_tabs"] === "number" && typeof record["gemini_tabs"] === "number";
     default:
       return false;
   }

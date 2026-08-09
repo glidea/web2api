@@ -1,3 +1,5 @@
+export type Provider = "chatgpt" | "gemini";
+
 export type Capabilities = {
   models: string[];
   reasoning_efforts: string[];
@@ -13,6 +15,7 @@ export type ExtensionHelloMessage = {
 export type WorkerReadyMessage = {
   version: 1;
   type: "worker.ready";
+  provider: Provider;
   worker_id: string;
   capabilities: Capabilities;
 };
@@ -40,6 +43,7 @@ export type HeartbeatMessage = {
 export type JobStartMessage = {
   version: 1;
   type: "job.start";
+  provider: Provider;
   request_id: string;
   worker_id: string;
   payload: {
@@ -106,7 +110,8 @@ export type ExtensionToDaemonMessage = ExtensionHelloMessage | WorkerReadyMessag
 export type ExtensionConfigureMessage = {
   version: 1;
   type: "extension.configure";
-  max_tabs: number;
+  chatgpt_tabs: number;
+  gemini_tabs: number;
 };
 
 export type DaemonToExtensionMessage = ExtensionConfigureMessage | HeartbeatMessage | JobStartMessage | JobCancelMessage;
@@ -120,4 +125,19 @@ export function parseExtensionMessage(value: unknown): ExtensionToDaemonMessage 
     return undefined;
   }
   return value as ExtensionToDaemonMessage;
+}
+
+export function providerFromModel(model: string): Provider | undefined {
+  const separator: number = model.indexOf("/");
+  if (separator <= 0 || separator === model.length - 1) {
+    return undefined;
+  }
+  switch (model.slice(0, separator)) {
+    case "chatgpt":
+      return "chatgpt";
+    case "gemini":
+      return "gemini";
+    default:
+      return undefined;
+  }
 }

@@ -1,5 +1,5 @@
 import { chromium, expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
@@ -9,7 +9,7 @@ type DaemonProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 const port: number = 3210;
 const outputDirectory: string = resolve("src/extension/.output/chrome-mv3");
-const fixture: string = `<!doctype html><html><head><title>ChatGPT fixture</title></head><body>
+const chatGptFixture: string = `<!doctype html><html><head><title>ChatGPT fixture</title></head><body>
 <textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>
 <script>
 document.querySelector('[data-testid=send-button]').addEventListener('click', () => {
@@ -46,6 +46,7 @@ test.beforeAll(({}, testInfo): void => {
 async function startDaemon(): Promise<void> {
   configDirectory = await mkdtemp(join(tmpdir(), "web2api-responses-e2e-"));
   const configPath: string = join(configDirectory, "config.json");
+  await writeFile(configPath, `${JSON.stringify({ api_key: "wb2_responses_e2e", port, chatgpt_tabs: 2, gemini_tabs: 2 }, null, 2)}\n`);
   daemon = spawn("pnpm", ["exec", "tsx", "src/daemon/cli.ts", "start", "--config", configPath, "--port", String(port)], {
     cwd: process.cwd(),
     env: process.env,
@@ -88,7 +89,7 @@ test.beforeAll(async (): Promise<void> => {
     });
   });
   await context.route("https://chatgpt.com/**", async (route): Promise<void> => {
-    await route.fulfill({ contentType: "text/html", body: fixture });
+    await route.fulfill({ contentType: "text/html", body: chatGptFixture });
   });
   await startDaemon();
 });
@@ -100,7 +101,7 @@ test.afterAll(async (): Promise<void> => {
   await rm(configDirectory, { recursive: true, force: true });
 });
 
-test("sends a real extension page job and returns non-streaming response", async (): Promise<void> => {
+test("keeps ChatGPT Responses API behavior after introducing Provider routing", async (): Promise<void> => {
   const pageDeadline: number = Date.now() + 10_000;
   let workerPages: Page[] = [];
   while (Date.now() < pageDeadline && workerPages.length < 2) {
@@ -158,7 +159,7 @@ test("sends a real extension page job and returns non-streaming response", async
     throw new Error(`response failed: ${response.status} ${await response.text()} daemon=${daemonErrors}`);
   }
   const body: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await response.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
-  expect(body.id).toMatch(/^resp_fixture-conversation_/);
+  expect(body.id).toMatch(/^resp_chatgpt_fixture-conversation_/);
   expect(body.output[0]?.content[0]?.text).toBe("hello from fixture");
 
   const freshResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
@@ -167,7 +168,7 @@ test("sends a real extension page job and returns non-streaming response", async
     body: JSON.stringify({ model: "chatgpt/default", input: "fresh" })
   });
   const freshBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await freshResponse.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
-  expect(freshBody.id).toMatch(/^resp_fresh-conversation_/);
+  expect(freshBody.id).toMatch(/^resp_chatgpt_fresh-conversation_/);
   expect(freshBody.output[0]?.content[0]?.text).toBe("/");
 
   const continuedResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
@@ -176,7 +177,7 @@ test("sends a real extension page job and returns non-streaming response", async
     body: JSON.stringify({ model: "chatgpt/default", input: "continue", previous_response_id: body.id })
   });
   const continuedBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await continuedResponse.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
-  expect(continuedBody.id).toMatch(/^resp_fixture-conversation_/);
+  expect(continuedBody.id).toMatch(/^resp_chatgpt_fixture-conversation_/);
   expect(continuedBody.output[0]?.content[0]?.text).toBe("/c/fixture-conversation");
 
   const toolResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
@@ -201,4 +202,5 @@ test("sends a real extension page job and returns non-streaming response", async
     name: "get_weather",
     arguments: '{"city":"Paris"}'
   }]);
+
 });

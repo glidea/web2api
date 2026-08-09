@@ -5,7 +5,8 @@
   import type { PopupRequest, PopupStatus } from "../../lib/popup-protocol";
 
   let status: PopupStatus | undefined = $state(undefined);
-  let maxTabs: number = $state(2);
+  let chatGptTabs: number = $state(2);
+  let geminiTabs: number = $state(2);
   let apiKeyVisible: boolean = $state(false);
   let busy: boolean = $state(false);
   let copiedField: "command" | "url" | "key" | undefined = $state(undefined);
@@ -23,8 +24,11 @@
   async function loadStatus(): Promise<void> {
     const nextStatus: PopupStatus = await send({ type: "web2api:popup", action: "status" });
     status = nextStatus;
-    if (nextStatus.maxTabs !== undefined) {
-      maxTabs = nextStatus.maxTabs;
+    if (nextStatus.chatGptTabs !== undefined) {
+      chatGptTabs = nextStatus.chatGptTabs;
+    }
+    if (nextStatus.geminiTabs !== undefined) {
+      geminiTabs = nextStatus.geminiTabs;
     }
   }
 
@@ -32,8 +36,11 @@
     busy = true;
     try {
       status = await send(request);
-      if (status.maxTabs !== undefined) {
-        maxTabs = status.maxTabs;
+      if (status.chatGptTabs !== undefined) {
+        chatGptTabs = status.chatGptTabs;
+      }
+      if (status.geminiTabs !== undefined) {
+        geminiTabs = status.geminiTabs;
       }
     } finally {
       busy = false;
@@ -136,12 +143,20 @@
     <section>
       <div class="section-heading tabs-heading">
         <div>
-          <label for="max-tabs">Concurrent tabs</label>
+          <label for="chatgpt-tabs">ChatGPT tabs</label>
           <p>Worker: {status.workerReady ? "Ready" : "Unavailable"}</p>
         </div>
         <div class="number-control">
-          <input id="max-tabs" type="number" min="1" max="8" bind:value={maxTabs} />
-          <button class="icon-button" title="Save and restart" aria-label="Save and restart" disabled={busy || maxTabs < 1 || maxTabs > 8} onclick={() => void runAction({ type: "web2api:popup", action: "configure", maxTabs })}>
+          <input id="chatgpt-tabs" type="number" min="1" max="8" bind:value={chatGptTabs} />
+        </div>
+      </div>
+      <div class="section-heading tabs-heading">
+        <div>
+          <label for="gemini-tabs">Gemini tabs</label>
+        </div>
+        <div class="number-control">
+          <input id="gemini-tabs" type="number" min="1" max="8" bind:value={geminiTabs} />
+          <button class="icon-button" title="Save and restart" aria-label="Save and restart" disabled={busy || chatGptTabs < 1 || chatGptTabs > 8 || geminiTabs < 1 || geminiTabs > 8} onclick={() => void runAction({ type: "web2api:popup", action: "configure", chatGptTabs, geminiTabs })}>
             <Save size={16} />
           </button>
         </div>

@@ -67,7 +67,7 @@ describe("native CLI installation", (): void => {
       WEB2API_NATIVE_MANIFEST_DIR: manifestDirectory
     };
     await runCli(["install", "--extension-id", extensionId]);
-    await writeFile(join(dataDirectory, "config.json"), `${JSON.stringify({ api_key: "wb2_native_test", port, max_tabs: 2, extension_id: extensionId }, null, 2)}\n`, "utf8");
+    await writeFile(join(dataDirectory, "config.json"), `${JSON.stringify({ api_key: "wb2_native_test", port, chatgpt_tabs: 2, gemini_tabs: 3, extension_id: extensionId }, null, 2)}\n`, "utf8");
   });
 
   afterAll(async (): Promise<void> => {
@@ -88,7 +88,8 @@ describe("native CLI installation", (): void => {
       daemon: "running",
       base_url: `http://127.0.0.1:${port}`,
       api_key: "wb2_native_test",
-      max_tabs: 2
+      chatgpt_tabs: 2,
+      gemini_tabs: 3
     });
     const health: Response = await fetch(`http://127.0.0.1:${port}/healthz`);
     expect(health.status).toBe(200);

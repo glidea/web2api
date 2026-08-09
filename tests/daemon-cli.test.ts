@@ -74,7 +74,13 @@ describe("daemon CLI", (): void => {
       headers: { Authorization: `Bearer ${apiKey}` }
     });
     expect(modelsResponse.status).toBe(200);
-    expect(await modelsResponse.json()).toEqual({ object: "list", data: [{ id: "chatgpt/default", object: "model", owned_by: "web2api" }] });
+    expect(await modelsResponse.json()).toEqual({
+      object: "list",
+      data: [
+        { id: "chatgpt/default", object: "model", owned_by: "web2api" },
+        { id: "gemini/default", object: "model", owned_by: "web2api" }
+      ]
+    });
   });
 
   it("persists the generated API key across restarts", async (): Promise<void> => {

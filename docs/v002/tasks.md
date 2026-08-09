@@ -27,12 +27,12 @@
 - popup 视觉改版
 
 ## TODO 清单
-- [ ] 1. 为 Provider 解析、跨 Provider 续接拒绝和独立调度补充失败测试
-- [ ] 2. 用 `chatgpt_tabs`、`gemini_tabs` 替换 `max_tabs`
-- [ ] 3. 给 worker、job 和 response ID 增加显式 Provider
-- [ ] 4. 实现 ChatGPT、Gemini 两个独立 Scheduler 和能力目录
-- [ ] 5. 更新 Native Messaging 与 CLI 配置协议
-- [ ] 6. 更新现有 ChatGPT background 握手，保证旧功能继续通过
+- [x] 1. 为 Provider 解析、跨 Provider 续接拒绝和独立调度补充失败测试
+- [x] 2. 用 `chatgpt_tabs`、`gemini_tabs` 替换 `max_tabs`
+- [x] 3. 给 worker、job 和 response ID 增加显式 Provider
+- [x] 4. 实现 ChatGPT、Gemini 两个独立 Scheduler 和能力目录
+- [x] 5. 更新 Native Messaging 与 CLI 配置协议
+- [x] 6. 更新现有 ChatGPT background 握手，保证旧功能继续通过
 
 ## 验收测试步骤
 1. 运行 `pnpm vitest run tests/config.test.ts tests/response-id.test.ts tests/gateway.test.ts tests/responses.test.ts tests/native-controller.test.ts tests/native-cli.test.ts`

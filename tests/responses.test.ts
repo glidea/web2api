@@ -56,6 +56,7 @@ async function connectFakeExtension(): Promise<void> {
   const ready: ExtensionToDaemonMessage = {
     version: 1,
     type: "worker.ready",
+    provider: "chatgpt",
     worker_id: "worker-1",
     capabilities: { models: ["chatgpt/default", "chatgpt/gpt-4o"], reasoning_efforts: ["low", "high"] }
   };
@@ -108,7 +109,7 @@ describe("non-streaming responses", (): void => {
     const response: Response = await responsePromise;
     expect(response.status).toBe(200);
     const body: { id: string; object: string; output: Array<{ content: Array<{ text: string }> }> } = await response.json() as { id: string; object: string; output: Array<{ content: Array<{ text: string }> }> };
-    expect(body.id).toMatch(/^resp_conv-123_[a-f0-9-]+$/);
+    expect(body.id).toMatch(/^resp_chatgpt_conv-123_[a-f0-9-]+$/);
     expect(body.object).toBe("response");
     expect(body.output[0]?.content[0]?.text).toBe("hello");
   });
@@ -116,7 +117,7 @@ describe("non-streaming responses", (): void => {
   it("exposes worker models and forwards reasoning effort", async (): Promise<void> => {
     const modelsResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
     const models: { data: Array<{ id: string }> } = await modelsResponse.json() as { data: Array<{ id: string }> };
-    expect(models.data.map((model: { id: string }): string => model.id)).toEqual(["chatgpt/default", "chatgpt/gpt-4o"]);
+    expect(models.data.map((model: { id: string }): string => model.id)).toEqual(["chatgpt/default", "gemini/default", "chatgpt/gpt-4o"]);
     const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
@@ -173,7 +174,7 @@ describe("non-streaming responses", (): void => {
     expect(await response.json()).toMatchObject({ error: { code: "unsupported_tool" } });
   });
 
-  it("returns chatgpt_login_required when the page session is logged out", async (): Promise<void> => {
+  it("returns login_required when the page session is logged out", async (): Promise<void> => {
     const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
@@ -188,19 +189,19 @@ describe("non-streaming responses", (): void => {
       type: "job.failed",
       request_id: job.request_id,
       worker_id: job.worker_id,
-      code: "chatgpt_login_required",
+      code: "login_required",
       message: "ChatGPT login is required"
     } satisfies ExtensionToDaemonMessage));
     const response: Response = await responsePromise;
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ error: { code: "chatgpt_login_required" } });
+    expect(await response.json()).toMatchObject({ error: { code: "login_required" } });
   });
 
   it("routes previous_response_id to the original conversation", async (): Promise<void> => {
     const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ model: "chatgpt/default", input: "continue", previous_response_id: "resp_conv-123_turn-1" })
+      body: JSON.stringify({ model: "chatgpt/default", input: "continue", previous_response_id: "resp_chatgpt_conv-123_turn-1" })
     });
     const job: DaemonToExtensionMessage = await readDaemonMessage();
     if (job.type !== "job.start") {
@@ -213,8 +214,19 @@ describe("non-streaming responses", (): void => {
     const response: Response = await responsePromise;
     expect(response.status).toBe(200);
     const body: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await response.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
-    expect(body.id).toMatch(/^resp_conv-123_[a-f0-9-]+$/);
+    expect(body.id).toMatch(/^resp_chatgpt_conv-123_[a-f0-9-]+$/);
     expect(body.output[0]?.content[0]?.text).toBe("continued");
+  });
+
+  it("rejects a previous response from a different provider", async (): Promise<void> => {
+    const response: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "chatgpt/default", input: "continue", previous_response_id: "resp_gemini_conv-123_turn-1" })
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "invalid_request", message: "previous_response_id belongs to a different provider" } });
   });
 
   it("resolves input images and projects a generated image result", async (): Promise<void> => {

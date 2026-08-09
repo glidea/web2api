@@ -6,13 +6,15 @@ import { randomBytes } from "node:crypto";
 export type DaemonConfig = {
   api_key: string;
   port: number;
-  max_tabs: number;
+  chatgpt_tabs: number;
+  gemini_tabs: number;
   extension_id?: string;
 };
 
 export type ConfigOverrides = {
   port?: number;
-  maxTabs?: number;
+  chatGptTabs?: number;
+  geminiTabs?: number;
   extensionId?: string;
 };
 
@@ -47,15 +49,19 @@ export async function loadOrCreateConfig(path: string, overrides: ConfigOverride
     config = {
       api_key: `wb2_${randomBytes(24).toString("base64url")}`,
       port: 3210,
-      max_tabs: 2
+      chatgpt_tabs: 2,
+      gemini_tabs: 2
     };
   }
 
   if (overrides.port !== undefined) {
     config.port = overrides.port;
   }
-  if (overrides.maxTabs !== undefined) {
-    config.max_tabs = overrides.maxTabs;
+  if (overrides.chatGptTabs !== undefined) {
+    config.chatgpt_tabs = overrides.chatGptTabs;
+  }
+  if (overrides.geminiTabs !== undefined) {
+    config.gemini_tabs = overrides.geminiTabs;
   }
   if (overrides.extensionId !== undefined) {
     config.extension_id = overrides.extensionId;
@@ -73,7 +79,7 @@ function parseConfig(content: string): DaemonConfig {
     throw new Error("invalid daemon config");
   }
   const record: Record<string, unknown> = value as Record<string, unknown>;
-  if (typeof record["api_key"] !== "string" || typeof record["port"] !== "number" || typeof record["max_tabs"] !== "number") {
+  if (typeof record["api_key"] !== "string" || typeof record["port"] !== "number" || typeof record["chatgpt_tabs"] !== "number" || typeof record["gemini_tabs"] !== "number") {
     throw new Error("invalid daemon config");
   }
   const extensionId: unknown = record["extension_id"];
@@ -83,7 +89,8 @@ function parseConfig(content: string): DaemonConfig {
   return {
     api_key: record["api_key"],
     port: record["port"],
-    max_tabs: record["max_tabs"],
+    chatgpt_tabs: record["chatgpt_tabs"],
+    gemini_tabs: record["gemini_tabs"],
     ...(typeof extensionId === "string" ? { extension_id: extensionId } : {})
   };
 }

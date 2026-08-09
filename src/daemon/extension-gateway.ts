@@ -2,12 +2,13 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
-import { parseExtensionMessage, type Capabilities, type DaemonToExtensionMessage, type ExtensionToDaemonMessage, type JobCancelMessage, type JobStartMessage } from "../shared/protocol";
+import { parseExtensionMessage, providerFromModel, type Capabilities, type DaemonToExtensionMessage, type ExtensionToDaemonMessage, type JobCancelMessage, type JobStartMessage, type Provider } from "../shared/protocol";
 import type { DaemonConfig } from "./config";
 import type { DaemonServer, DaemonStatus } from "./server";
 import { ConversationScheduler } from "./scheduler";
 
 type WorkerState = {
+  provider: Provider;
   capabilities: Capabilities;
 };
 
@@ -18,15 +19,16 @@ export type TextJobResult = {
 };
 
 export class GatewayError extends Error {
-  public readonly code: "extension_unavailable" | "chatgpt_adapter_error" | "chatgpt_login_required";
+  public readonly code: "extension_unavailable" | "adapter_error" | "login_required";
 
-  public constructor(code: "extension_unavailable" | "chatgpt_adapter_error" | "chatgpt_login_required", message: string) {
+  public constructor(code: "extension_unavailable" | "adapter_error" | "login_required", message: string) {
     super(message);
     this.code = code;
   }
 }
 
 type PendingJob = {
+  provider: Provider;
   workerId: string | undefined;
   conversationId: string | undefined;
   text: string;
@@ -55,7 +57,7 @@ export class ExtensionGateway {
   private readonly status: DaemonStatus;
   private readonly websocketServer: WebSocketServer;
   private readonly workers: Map<string, WorkerState> = new Map<string, WorkerState>();
-  private readonly scheduler: ConversationScheduler;
+  private readonly schedulers: Record<Provider, ConversationScheduler>;
   private readonly pendingJobs: Map<string, PendingJob> = new Map<string, PendingJob>();
   private connection: WebSocket | undefined;
   private lastHeartbeat: number = 0;
@@ -64,7 +66,10 @@ export class ExtensionGateway {
   public constructor(server: DaemonServer, config: DaemonConfig, status: DaemonStatus) {
     this.config = config;
     this.status = status;
-    this.scheduler = new ConversationScheduler(config.max_tabs);
+    this.schedulers = {
+      chatgpt: new ConversationScheduler(config.chatgpt_tabs),
+      gemini: new ConversationScheduler(config.gemini_tabs)
+    };
     this.websocketServer = new WebSocketServer({ noServer: true });
     server.onUpgrade((request: IncomingMessage, socket: Duplex, head: Buffer): void => {
       this.handleUpgrade(request, socket, head);
@@ -80,7 +85,8 @@ export class ExtensionGateway {
   public close(): void {
     clearInterval(this.heartbeatTimer);
     this.connection?.close(1000, "daemon stopping");
-    this.scheduler.close(new GatewayError("extension_unavailable", "Daemon stopping"));
+    this.schedulers.chatgpt.close(new GatewayError("extension_unavailable", "Daemon stopping"));
+    this.schedulers.gemini.close(new GatewayError("extension_unavailable", "Daemon stopping"));
     for (const pendingJob of this.pendingJobs.values()) {
       if (pendingJob.timeout !== undefined) {
         clearTimeout(pendingJob.timeout);
@@ -99,24 +105,28 @@ export class ExtensionGateway {
     if (this.connection === undefined || this.status.extensionConnected === false) {
       throw new GatewayError("extension_unavailable", "Extension is not connected");
     }
-    if (this.workers.size === 0) {
-      throw new GatewayError("extension_unavailable", "No ready worker is available");
+    const provider: Provider | undefined = providerFromModel(model);
+    if (provider === undefined) {
+      throw new GatewayError("adapter_error", "Requested model is not available");
+    }
+    if (!Array.from(this.workers.values()).some((worker: WorkerState): boolean => worker.provider === provider)) {
+      throw new GatewayError("extension_unavailable", `No ready ${provider} worker is available`);
     }
     const requestId: string = `req_${randomUUID()}`;
     const result: Promise<TextJobResult> = new Promise<TextJobResult>((resolve, reject): void => {
-      this.pendingJobs.set(requestId, { workerId: undefined, conversationId: undefined, text: "", resolve, reject, timeout: undefined, onConversationBound: callbacks.onConversationBound, onDelta: callbacks.onDelta, onImage: callbacks.onImage, image: undefined });
+      this.pendingJobs.set(requestId, { provider, workerId: undefined, conversationId: undefined, text: "", resolve, reject, timeout: undefined, onConversationBound: callbacks.onConversationBound, onDelta: callbacks.onDelta, onImage: callbacks.onImage, image: undefined });
     });
-    const scheduled: { id: string; result: Promise<TextJobResult> } = this.scheduler.enqueueWithId(requestId, conversationId, async (workerId: string): Promise<TextJobResult> => {
+    const scheduled: { id: string; result: Promise<TextJobResult> } = this.schedulers[provider].enqueueWithId(requestId, conversationId, async (workerId: string): Promise<TextJobResult> => {
       const pendingJob: PendingJob | undefined = this.pendingJobs.get(requestId);
       if (pendingJob === undefined || this.connection === undefined) {
         throw new GatewayError("extension_unavailable", "Extension is not connected");
       }
       if (!this.workerSupports(workerId, model, reasoningEffort)) {
-        throw new GatewayError("chatgpt_adapter_error", "Requested model or reasoning effort is not available");
+        throw new GatewayError("adapter_error", "Requested model or reasoning effort is not available");
       }
       pendingJob.workerId = workerId;
       pendingJob.timeout = setTimeout((): void => {
-        this.failJob(requestId, new GatewayError("chatgpt_adapter_error", "ChatGPT job timed out"));
+        this.failJob(requestId, new GatewayError("adapter_error", `${provider} job timed out`));
       }, generateImage ? 300_000 : 120_000);
       const payload: JobStartMessage["payload"] = {
         model,
@@ -126,7 +136,7 @@ export class ExtensionGateway {
         ...(images === undefined || images.length === 0 ? {} : { images }),
         ...(generateImage ? { generate_image: true } : {})
       };
-      const job: JobStartMessage = { version: 1, type: "job.start", request_id: requestId, worker_id: workerId, payload };
+      const job: JobStartMessage = { version: 1, type: "job.start", provider, request_id: requestId, worker_id: workerId, payload };
       this.send(this.connection, job);
       return result;
     });
@@ -135,10 +145,10 @@ export class ExtensionGateway {
   }
 
   public models(): string[] {
-    const models: Set<string> = new Set<string>(["chatgpt/default"]);
+    const models: Set<string> = new Set<string>(["chatgpt/default", "gemini/default"]);
     for (const worker of this.workers.values()) {
       for (const model of worker.capabilities.models) {
-        models.add(model.startsWith("chatgpt/") ? model : `chatgpt/${model}`);
+        models.add(model);
       }
     }
     return Array.from(models);
@@ -148,9 +158,10 @@ export class ExtensionGateway {
     return this.models().includes(model);
   }
 
-  public supportsReasoningEffort(effort: string): boolean {
+  public supportsReasoningEffort(model: string, effort: string): boolean {
+    const provider: Provider | undefined = providerFromModel(model);
     for (const worker of this.workers.values()) {
-      if (worker.capabilities.reasoning_efforts.includes(effort)) {
+      if (worker.provider === provider && worker.capabilities.reasoning_efforts.includes(effort)) {
         return true;
       }
     }
@@ -162,7 +173,7 @@ export class ExtensionGateway {
     if (pendingJob === undefined) {
       return;
     }
-    const queued: boolean = this.scheduler.cancel(requestId, new GatewayError("extension_unavailable", "Request cancelled"));
+    const queued: boolean = this.schedulers[pendingJob.provider].cancel(requestId, new GatewayError("extension_unavailable", "Request cancelled"));
     if (queued) {
       this.failJob(requestId, new GatewayError("extension_unavailable", "Request cancelled"));
       return;
@@ -199,14 +210,15 @@ export class ExtensionGateway {
       }
       this.connection = undefined;
       this.workers.clear();
-    for (const [requestId, pendingJob] of this.pendingJobs.entries()) {
+      for (const [requestId, pendingJob] of this.pendingJobs.entries()) {
         if (pendingJob.timeout !== undefined) {
           clearTimeout(pendingJob.timeout);
         }
         pendingJob.reject(new GatewayError("extension_unavailable", "Extension disconnected"));
         this.pendingJobs.delete(requestId);
       }
-      this.scheduler.close(new GatewayError("extension_unavailable", "Extension disconnected"));
+      this.schedulers.chatgpt.close(new GatewayError("extension_unavailable", "Extension disconnected"));
+      this.schedulers.gemini.close(new GatewayError("extension_unavailable", "Extension disconnected"));
       this.status.extensionConnected = false;
       this.status.workersReady = 0;
     });
@@ -227,20 +239,25 @@ export class ExtensionGateway {
     }
     switch (message.type) {
       case "extension.hello":
-        this.send(websocket, { version: 1, type: "extension.configure", max_tabs: this.config.max_tabs });
+        this.send(websocket, { version: 1, type: "extension.configure", chatgpt_tabs: this.config.chatgpt_tabs, gemini_tabs: this.config.gemini_tabs });
         return;
       case "heartbeat":
         this.lastHeartbeat = Date.now();
         this.send(websocket, message);
         return;
       case "worker.ready":
-        this.workers.set(message.worker_id, { capabilities: message.capabilities });
-        this.scheduler.addWorker(message.worker_id);
+        this.workers.set(message.worker_id, { provider: message.provider, capabilities: message.capabilities });
+        this.schedulers[message.provider].addWorker(message.worker_id);
         this.status.workersReady = this.workers.size;
         return;
       case "worker.unhealthy":
-        this.workers.delete(message.worker_id);
-        this.scheduler.removeWorker(message.worker_id);
+        {
+          const worker: WorkerState | undefined = this.workers.get(message.worker_id);
+          this.workers.delete(message.worker_id);
+          if (worker !== undefined) {
+            this.schedulers[worker.provider].removeWorker(message.worker_id);
+          }
+        }
         for (const [requestId, pendingJob] of this.pendingJobs.entries()) {
           if (pendingJob.workerId === message.worker_id) {
             this.failJob(requestId, new GatewayError("extension_unavailable", "Worker became unhealthy"));
@@ -249,8 +266,11 @@ export class ExtensionGateway {
         this.status.workersReady = this.workers.size;
         return;
       case "capabilities.updated":
-        if (this.workers.has(message.worker_id)) {
-          this.workers.set(message.worker_id, { capabilities: message.capabilities });
+        {
+          const worker: WorkerState | undefined = this.workers.get(message.worker_id);
+          if (worker !== undefined) {
+            this.workers.set(message.worker_id, { provider: worker.provider, capabilities: message.capabilities });
+          }
         }
         return;
       case "job.conversation_bound":
@@ -284,7 +304,7 @@ export class ExtensionGateway {
         this.finishJob(message.request_id);
         return;
       case "job.failed":
-        this.failJob(message.request_id, new GatewayError(message.code === "chatgpt_login_required" ? message.code : "chatgpt_adapter_error", message.message));
+        this.failJob(message.request_id, new GatewayError(message.code === "login_required" ? "login_required" : "adapter_error", message.message));
         return;
     }
   }
@@ -299,7 +319,7 @@ export class ExtensionGateway {
     }
     this.pendingJobs.delete(requestId);
     if (pendingJob.conversationId === undefined) {
-      pendingJob.reject(new GatewayError("chatgpt_adapter_error", "ChatGPT did not bind a conversation"));
+      pendingJob.reject(new GatewayError("adapter_error", "Worker did not bind a conversation"));
       return;
     }
     pendingJob.resolve({ conversationId: pendingJob.conversationId, text: pendingJob.text, image: pendingJob.image });
@@ -322,7 +342,8 @@ export class ExtensionGateway {
     if (worker === undefined) {
       return false;
     }
-    const modelAvailable: boolean = model === "chatgpt/default" || worker.capabilities.models.includes(model) || worker.capabilities.models.includes(model.slice("chatgpt/".length));
+    const provider: Provider | undefined = providerFromModel(model);
+    const modelAvailable: boolean = worker.provider === provider && (model.endsWith("/default") || worker.capabilities.models.includes(model));
     const effortAvailable: boolean = reasoningEffort === undefined || worker.capabilities.reasoning_efforts.includes(reasoningEffort);
     return modelAvailable && effortAvailable;
   }

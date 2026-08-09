@@ -60,7 +60,7 @@ async function connectFakeExtension(): Promise<void> {
   await once(socket, "open");
   socket.send(JSON.stringify({ version: 1, type: "extension.hello", extension_version: "0.1.0", chrome_version: "151" } satisfies ExtensionToDaemonMessage));
   await readDaemonMessage();
-  socket.send(JSON.stringify({ version: 1, type: "worker.ready", worker_id: "worker-1", capabilities: { models: ["chatgpt/default"], reasoning_efforts: [] } } satisfies ExtensionToDaemonMessage));
+  socket.send(JSON.stringify({ version: 1, type: "worker.ready", provider: "chatgpt", worker_id: "worker-1", capabilities: { models: ["chatgpt/default"], reasoning_efforts: [] } } satisfies ExtensionToDaemonMessage));
 }
 
 async function readDaemonMessage(): Promise<DaemonToExtensionMessage> {

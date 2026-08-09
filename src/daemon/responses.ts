@@ -4,8 +4,10 @@ import { ExtensionGateway, GatewayError, type TextJobResult, type TextJobHandle 
 import { decodeResponseId, encodeResponseId } from "./response-id";
 import { resolveImage, type ResolvedImage } from "./image-resolver";
 import { buildFunctionPrompt, parseFunctionResponse, ToolProtocolError, type FunctionCall, type FunctionResponse, type FunctionTool, type FunctionToolChoice, type FunctionToolOutput } from "./tool-protocol";
+import { providerFromModel, type Provider } from "../shared/protocol";
 
 type ResponsesRequest = {
+  provider: Provider;
   model: string;
   input: string;
   stream: boolean;
@@ -79,7 +81,7 @@ export class ResponsesService {
         output.push({ id: `ig_${randomUUID()}`, type: "image_generation_call", status: "completed", result: result.image.data });
       }
       const responseBody: ResponsesBody = {
-        id: encodeResponseId(result.conversationId, randomUUID()),
+        id: encodeResponseId(body.provider, result.conversationId, randomUUID()),
         object: "response",
         created_at: Math.floor(Date.now() / 1000),
         status: "completed",
@@ -105,6 +107,10 @@ export class ResponsesService {
     }
     const record: Record<string, unknown> = value as Record<string, unknown>;
     if (typeof record["model"] !== "string" || !this.gateway.supportsModel(record["model"])) {
+      throw new RequestError(400, "model_not_available", "Requested model is not available");
+    }
+    const provider: Provider | undefined = providerFromModel(record["model"]);
+    if (provider === undefined) {
       throw new RequestError(400, "model_not_available", "Requested model is not available");
     }
     let input: string = "";
@@ -145,8 +151,15 @@ export class ResponsesService {
         throw new RequestError(400, "invalid_request", "previous_response_id must be a string");
       }
       try {
-        conversationId = decodeResponseId(record["previous_response_id"]).conversationId;
-      } catch {
+        const reference: ReturnType<typeof decodeResponseId> = decodeResponseId(record["previous_response_id"]);
+        if (reference.provider !== provider) {
+          throw new RequestError(400, "invalid_request", "previous_response_id belongs to a different provider");
+        }
+        conversationId = reference.conversationId;
+      } catch (error: unknown) {
+        if (error instanceof RequestError) {
+          throw error;
+        }
         throw new RequestError(400, "invalid_request", "Invalid previous_response_id");
       }
     }
@@ -160,7 +173,7 @@ export class ResponsesService {
         throw new RequestError(400, "invalid_request", "reasoning.effort must be a string");
       }
       reasoningEffort = reasoning["effort"] as string | undefined;
-      if (reasoningEffort !== undefined && !this.gateway.supportsReasoningEffort(reasoningEffort)) {
+      if (reasoningEffort !== undefined && !this.gateway.supportsReasoningEffort(record["model"], reasoningEffort)) {
         throw new RequestError(400, "reasoning_effort_not_available", "Requested reasoning effort is not available");
       }
     }
@@ -213,7 +226,7 @@ export class ResponsesService {
     if (functionTools.length > 0 || toolOutputs.length > 0) {
       input = buildFunctionPrompt({ text: input, tool_outputs: toolOutputs }, activeFunctionTools, toolChoice, parallelToolCalls, instructions);
     }
-    return { model: record["model"], input, stream: record["stream"] === true, conversationId, reasoningEffort, images, generateImage, functionTools: activeFunctionTools, toolChoice, parallelToolCalls };
+    return { provider, model: record["model"], input, stream: record["stream"] === true, conversationId, reasoningEffort, images, generateImage, functionTools: activeFunctionTools, toolChoice, parallelToolCalls };
   }
 
   private async handleStream(request: IncomingMessage, response: ServerResponse, body: ResponsesRequest): Promise<void> {
@@ -223,7 +236,7 @@ export class ResponsesService {
     try {
       handle = this.gateway.startTextJob(body.model, body.input, {
         onConversationBound: (conversationId: string): void => {
-          state.responseId = encodeResponseId(conversationId, randomUUID());
+          state.responseId = encodeResponseId(body.provider, conversationId, randomUUID());
           this.writeEvent(response, "response.created", { type: "response.created", response: { id: state.responseId, object: "response", status: "in_progress", model: body.model } });
           this.writeEvent(response, "response.in_progress", { type: "response.in_progress", response_id: state.responseId });
           if (body.functionTools.length === 0) {
@@ -292,7 +305,7 @@ export class ResponsesService {
       return;
     }
     if (error instanceof GatewayError) {
-      const statusCode: number = error.code === "chatgpt_adapter_error" ? 502 : 503;
+      const statusCode: number = error.code === "adapter_error" ? 502 : 503;
       this.sendJson(response, statusCode, { error: { message: error.message, type: "server_error", code: error.code } });
       return;
     }

@@ -23,7 +23,7 @@ export default defineContentScript({
 async function runTextJob(message: JobStartMessage): Promise<void> {
   try {
     if (!isChatGPTLoggedIn(document)) {
-      throw new Error("chatgpt_login_required");
+      throw new Error("login_required");
     }
     if (message.payload.model !== "chatgpt/default") {
       await selectModel(document, message.payload.model.slice("chatgpt/".length));
@@ -55,7 +55,7 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
     await browser.runtime.sendMessage(completed);
   } catch (error: unknown) {
     const errorMessage: string = error instanceof Error ? error.message : String(error);
-    const code: string = errorMessage === "chatgpt_login_required" ? errorMessage : "chatgpt_adapter_error";
+    const code: string = errorMessage === "login_required" ? errorMessage : "adapter_error";
     const failure: ExtensionToDaemonMessage = { version: 1, type: "job.failed", request_id: message.request_id, worker_id: message.worker_id, code, message: errorMessage };
     await browser.runtime.sendMessage(failure);
   }
@@ -64,6 +64,7 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
 async function reportContentReady(): Promise<void> {
   await browser.runtime.sendMessage({
     type: "web2api:content-ready",
+    provider: "chatgpt",
     url: window.location.href,
     loggedIn: isChatGPTLoggedIn(document),
     capabilities: { models: ["chatgpt/default"], reasoning_efforts: [] }
@@ -71,6 +72,7 @@ async function reportContentReady(): Promise<void> {
   const capabilities: { models: string[]; reasoningEfforts: string[] } = await getCapabilities(document);
   await browser.runtime.sendMessage({
     type: "web2api:content-ready",
+    provider: "chatgpt",
     url: window.location.href,
     loggedIn: isChatGPTLoggedIn(document),
     capabilities: toProtocolCapabilities(capabilities)
