@@ -1,16 +1,16 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { cancelGeneration, getAssistantMessageCount, getCapabilities, isChatGPTLoggedIn, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, waitForGeneratedImage, type ImagePayload } from "../lib/chatgpt-adapter";
-import type { Capabilities, JobCancelMessage, JobStartMessage, ExtensionToDaemonMessage } from "../../shared/protocol";
+import { cancelGeneration, getAssistantMessageCount, getCapabilities, isGeminiLoggedIn, parseConversationId, selectModel, selectReasoningEffort, streamAssistantText, submitPrompt, uploadImages, waitForGeneratedImage, type ImagePayload } from "../lib/gemini-adapter";
+import type { Capabilities, ExtensionToDaemonMessage, JobCancelMessage, JobStartMessage } from "../../shared/protocol";
 
 export default defineContentScript({
-  matches: ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+  matches: ["https://gemini.google.com/*"],
   main(): void {
     document.documentElement.dataset.web2apiContentScript = "ready";
     void reportContentReady();
     browser.runtime.onMessage.addListener((message: unknown): Promise<void> => {
       if (isJobStartMessage(message)) {
-        void runTextJob(message);
+        void runJob(message);
       }
       if (isJobCancelMessage(message)) {
         cancelGeneration(document);
@@ -20,13 +20,13 @@ export default defineContentScript({
   }
 });
 
-async function runTextJob(message: JobStartMessage): Promise<void> {
+async function runJob(message: JobStartMessage): Promise<void> {
   try {
-    if (!isChatGPTLoggedIn(document)) {
+    if (!isGeminiLoggedIn(document)) {
       throw new Error("login_required");
     }
-    if (message.payload.model !== "chatgpt/default") {
-      await selectModel(document, message.payload.model.slice("chatgpt/".length));
+    if (message.payload.model !== "gemini/default") {
+      await selectModel(document, message.payload.model.slice("gemini/".length));
     }
     if (message.payload.reasoning_effort !== undefined) {
       await selectReasoningEffort(document, message.payload.reasoning_effort);
@@ -62,26 +62,30 @@ async function runTextJob(message: JobStartMessage): Promise<void> {
 }
 
 async function reportContentReady(): Promise<void> {
+  const loggedIn: boolean = isGeminiLoggedIn(document);
   await browser.runtime.sendMessage({
     type: "web2api:content-ready",
-    provider: "chatgpt",
+    provider: "gemini",
     url: window.location.href,
-    loggedIn: isChatGPTLoggedIn(document),
-    capabilities: { models: ["chatgpt/default"], reasoning_efforts: [] }
+    loggedIn,
+    capabilities: { models: ["gemini/default"], reasoning_efforts: [] }
   });
+  if (!loggedIn) {
+    return;
+  }
   const capabilities: { models: string[]; reasoningEfforts: string[] } = await getCapabilities(document);
   await browser.runtime.sendMessage({
     type: "web2api:content-ready",
-    provider: "chatgpt",
+    provider: "gemini",
     url: window.location.href,
-    loggedIn: isChatGPTLoggedIn(document),
+    loggedIn,
     capabilities: toProtocolCapabilities(capabilities)
   });
 }
 
 function toProtocolCapabilities(capabilities: { models: string[]; reasoningEfforts: string[] }): Capabilities {
   return {
-    models: ["chatgpt/default", ...capabilities.models.map((model: string): string => model.startsWith("chatgpt/") ? model : `chatgpt/${model}`)],
+    models: ["gemini/default", ...capabilities.models.map((model: string): string => `gemini/${model}`)],
     reasoning_efforts: capabilities.reasoningEfforts
   };
 }
@@ -122,7 +126,7 @@ function isJobStartMessage(message: unknown): message is JobStartMessage {
     return false;
   }
   const value: Record<string, unknown> = message as Record<string, unknown>;
-  return value["type"] === "job.start" && value["provider"] === "chatgpt";
+  return value["type"] === "job.start" && value["provider"] === "gemini";
 }
 
 function isJobCancelMessage(message: unknown): message is JobCancelMessage {

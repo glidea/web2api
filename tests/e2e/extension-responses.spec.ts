@@ -28,6 +28,27 @@ document.querySelector('[data-testid=send-button]').addEventListener('click', ()
   }, 100);
 });
 </script></body></html>`;
+const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture</title></head><body>
+<a href="https://accounts.google.com/SignOutOptions">Account</a>
+<button data-test-id="bard-mode-menu-button" aria-expanded="true">Flash</button>
+<gem-menu-item role="menuitem" data-mode-id="flash"><span class="label">3.6 Flash</span></gem-menu-item>
+<gem-menu-item role="menuitem"><span class="label">Extended thinking</span></gem-menu-item>
+<div class="ql-editor" role="textbox" contenteditable="true"></div>
+<button aria-label="Send"><span data-mat-icon-name="send"></span></button>
+<script>
+document.querySelector('button[aria-label=Send]').addEventListener('click', () => {
+  const composer = document.querySelector('[role=textbox]');
+  const startingPath = location.pathname;
+  const currentConversation = startingPath.startsWith('/app/') ? startingPath.slice(5) : undefined;
+  const conversationId = currentConversation || (composer.textContent === 'hello gemini' ? 'gemini-fixture-conversation' : 'gemini-fresh-conversation');
+  history.pushState({}, '', '/app/' + conversationId);
+  setTimeout(() => {
+    const assistant = document.createElement('model-response');
+    assistant.innerHTML = '<message-content>' + (composer.textContent === 'hello gemini' ? 'hello from gemini fixture' : startingPath) + '</message-content>';
+    document.body.append(assistant);
+  }, 100);
+});
+</script></body></html>`;
 
 let daemon: DaemonProcess;
 let context: BrowserContext;
@@ -91,6 +112,9 @@ test.beforeAll(async (): Promise<void> => {
   await context.route("https://chatgpt.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: chatGptFixture });
   });
+  await context.route("https://gemini.google.com/**", async (route): Promise<void> => {
+    await route.fulfill({ contentType: "text/html", body: geminiFixture });
+  });
   await startDaemon();
 });
 
@@ -104,18 +128,18 @@ test.afterAll(async (): Promise<void> => {
 test("keeps ChatGPT Responses API behavior after introducing Provider routing", async (): Promise<void> => {
   const pageDeadline: number = Date.now() + 10_000;
   let workerPages: Page[] = [];
-  while (Date.now() < pageDeadline && workerPages.length < 2) {
-    workerPages = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/"));
-    if (workerPages.length < 2) {
+  while (Date.now() < pageDeadline && workerPages.length < 4) {
+    workerPages = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/") || candidate.url().startsWith("https://gemini.google.com/"));
+    if (workerPages.length < 4) {
       await new Promise<void>((resolvePromise): void => {
         setTimeout(resolvePromise, 100);
       });
     }
   }
-  if (workerPages.length < 2) {
+  if (workerPages.length < 4) {
     throw new Error("worker tabs were not created");
   }
-  for (const workerPage of workerPages) {
+  for (const workerPage of workerPages.filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/"))) {
     await workerPage.evaluate((): void => {
       document.body.innerHTML = '<textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>';
       const button: HTMLButtonElement = document.querySelector("[data-testid=send-button]") as HTMLButtonElement;
@@ -136,12 +160,15 @@ test("keeps ChatGPT Responses API behavior after introducing Provider routing", 
       });
     });
   }
+  for (const workerPage of workerPages.filter((candidate: Page): boolean => candidate.url().startsWith("https://gemini.google.com/"))) {
+    await workerPage.reload();
+  }
   const deadline: number = Date.now() + 10_000;
   let ready: boolean = false;
   while (Date.now() < deadline) {
     const healthResponse: Response = await fetch(`http://127.0.0.1:${port}/healthz`);
     const health: { extension_connected: boolean; workers_ready: number } = await healthResponse.json() as { extension_connected: boolean; workers_ready: number };
-    ready = health.extension_connected && health.workers_ready === 2;
+    ready = health.extension_connected && health.workers_ready === 4;
     if (ready) {
       break;
     }
@@ -203,4 +230,96 @@ test("keeps ChatGPT Responses API behavior after introducing Provider routing", 
     arguments: '{"city":"Paris"}'
   }]);
 
+});
+
+test("serves Gemini text, streaming and continued responses without using ChatGPT tabs", async (): Promise<void> => {
+  const chatGptPages: Page[] = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/"));
+  const chatGptUrlsBefore: string[] = chatGptPages.map((page: Page): string => page.url());
+  const geminiPages: Page[] = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://gemini.google.com/"));
+  expect(geminiPages).toHaveLength(2);
+  for (const geminiPage of geminiPages) {
+    await expect(geminiPage.locator('a[href*="accounts.google.com/SignOutOptions"]')).toHaveCount(1);
+  }
+  const modelsDeadline: number = Date.now() + 5_000;
+  let modelIds: string[] = [];
+  while (Date.now() < modelsDeadline) {
+    const modelsResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const modelsBody: { data: Array<{ id: string }> } = await modelsResponse.json() as { data: Array<{ id: string }> };
+    modelIds = modelsBody.data.map((model: { id: string }): string => model.id);
+    if (modelIds.includes("gemini/3.6-flash")) {
+      break;
+    }
+    await new Promise<void>((resolvePromise): void => {
+      setTimeout(resolvePromise, 100);
+    });
+  }
+  expect(modelIds).toContain("gemini/3.6-flash");
+
+  const modelResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "gemini/3.6-flash", input: "dynamic gemini", reasoning: { effort: "extended" } })
+  });
+  expect(modelResponse.status).toBe(200);
+  const unsupportedReasoningResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "gemini/default", input: "invalid reasoning", reasoning: { effort: "high" } })
+  });
+  expect(unsupportedReasoningResponse.status).toBe(400);
+  expect(await unsupportedReasoningResponse.json()).toMatchObject({ error: { code: "reasoning_effort_not_available" } });
+
+  const firstResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "gemini/default", input: "hello gemini" })
+  });
+  const firstContent: string = await firstResponse.text();
+  if (firstResponse.status !== 200) {
+    throw new Error(`Gemini response failed: ${firstResponse.status} ${firstContent} pages=${pageErrors.join("|")} daemon=${daemonErrors}`);
+  }
+  const firstBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = JSON.parse(firstContent) as { id: string; output: Array<{ content: Array<{ text: string }> }> };
+  expect(firstBody.id).toMatch(/^resp_gemini_gemini-fixture-conversation_/);
+  expect(firstBody.output[0]?.content[0]?.text).toBe("hello from gemini fixture");
+
+  const streamResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "gemini/default", input: "stream gemini", stream: true })
+  });
+  const streamBody: string = await streamResponse.text();
+  expect(streamResponse.headers.get("content-type")).toContain("text/event-stream");
+  expect(streamBody).toContain("event: response.output_text.delta");
+  expect(streamBody).toContain("/app");
+  expect(streamBody).toContain("event: response.completed");
+
+  const continuedResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "gemini/default", input: "continue gemini", previous_response_id: firstBody.id })
+  });
+  const continuedBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await continuedResponse.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
+  expect(continuedBody.id).toMatch(/^resp_gemini_gemini-fixture-conversation_/);
+  expect(continuedBody.output[0]?.content[0]?.text).toBe("/app/gemini-fixture-conversation");
+  expect(chatGptPages.map((page: Page): string => page.url())).toEqual(chatGptUrlsBefore);
+
+  const parallelChatGptPromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "chatgpt/default", input: "parallel chatgpt" })
+  });
+  const parallelGeminiPromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "gemini/default", input: "parallel gemini" })
+  });
+  const [parallelChatGptResponse, parallelGeminiResponse]: [Response, Response] = await Promise.all([parallelChatGptPromise, parallelGeminiPromise]);
+  const parallelChatGptBody: { id: string } = await parallelChatGptResponse.json() as { id: string };
+  const parallelGeminiBody: { id: string } = await parallelGeminiResponse.json() as { id: string };
+  expect(parallelChatGptResponse.status).toBe(200);
+  expect(parallelGeminiResponse.status).toBe(200);
+  expect(parallelChatGptBody.id).toMatch(/^resp_chatgpt_/);
+  expect(parallelGeminiBody.id).toMatch(/^resp_gemini_/);
+  expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/"))).toHaveLength(2);
+  expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/"))).toHaveLength(2);
 });

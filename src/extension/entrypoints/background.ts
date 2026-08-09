@@ -37,8 +37,10 @@ let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 export default defineBackground((): void => {
   void initializeDaemon();
   browser.tabs.onRemoved.addListener((tabId: number): void => {
+    let removedProvider: Provider | undefined;
     for (const [workerId, workerTabId] of workerTabs.entries()) {
       if (workerTabId === tabId) {
+        removedProvider = providerFromWorkerId(workerId);
         workerTabs.delete(workerId);
         readyWorkers.delete(workerId);
         workerCapabilities.delete(workerId);
@@ -46,8 +48,8 @@ export default defineBackground((): void => {
       }
     }
     workerReady = readyWorkers.size > 0;
-    if (configuredChatGptTabs > 0 && shouldReconnect) {
-      void ensureChatGptWorkerTabs(configuredChatGptTabs);
+    if (removedProvider !== undefined && shouldReconnect) {
+      void ensureWorkerTabs(removedProvider, configuredTabCount(removedProvider));
     }
   });
   browser.runtime.onMessage.addListener((message: unknown, sender): Promise<PopupStatus | undefined> => {
@@ -210,7 +212,7 @@ async function connectToDaemon(): Promise<void> {
       case "extension.configure":
         configuredChatGptTabs = message.chatgpt_tabs;
         configuredGeminiTabs = message.gemini_tabs;
-        void ensureChatGptWorkerTabs(message.chatgpt_tabs);
+        void synchronizeWorkerTabs();
         break;
       case "job.start":
         void dispatchJob(message);
@@ -271,16 +273,15 @@ function clearHeartbeat(): void {
 }
 
 async function handleContentReady(message: ContentReadyMessage, tabId: number | undefined): Promise<undefined> {
-  if (message.provider !== "chatgpt") {
-    return undefined;
-  }
   contentScriptReady = true;
-  chatGptLoggedIn = message.loggedIn;
-  if (message.capabilities !== undefined) {
-    chatGptCapabilities = message.capabilities;
+  if (message.provider === "chatgpt") {
+    chatGptLoggedIn = message.loggedIn;
+    if (message.capabilities !== undefined) {
+      chatGptCapabilities = message.capabilities;
+    }
   }
   const workerId: string | undefined = findWorkerId(tabId);
-  if (workerId === undefined) {
+  if (workerId === undefined || providerFromWorkerId(workerId) !== message.provider) {
     return undefined;
   }
   if (message.capabilities !== undefined) {
@@ -300,12 +301,10 @@ async function handleContentReady(message: ContentReadyMessage, tabId: number | 
 
 async function dispatchJob(message: JobStartMessage): Promise<void> {
   const workerTabId: number | undefined = workerTabs.get(message.worker_id);
-  if (workerTabId === undefined) {
+  if (workerTabId === undefined || providerFromWorkerId(message.worker_id) !== message.provider) {
     return;
   }
-  const targetUrl: string = message.payload.conversation_id === undefined
-    ? "https://chatgpt.com/"
-    : `https://chatgpt.com/c/${encodeURIComponent(message.payload.conversation_id)}`;
+  const targetUrl: string = conversationUrl(message.provider, message.payload.conversation_id);
   const tab: { url?: string } = await browser.tabs.get(workerTabId);
   if (tab.url !== undefined && sameChatPage(tab.url, targetUrl)) {
     await browser.tabs.sendMessage(workerTabId, message);
@@ -323,10 +322,16 @@ function sameChatPage(currentUrl: string, targetUrl: string): boolean {
   return current.origin === target.origin && current.pathname === target.pathname;
 }
 
-async function ensureChatGptWorkerTabs(tabCount: number): Promise<void> {
+async function synchronizeWorkerTabs(): Promise<void> {
+  await ensureWorkerTabs("chatgpt", configuredChatGptTabs);
+  await ensureWorkerTabs("gemini", configuredGeminiTabs);
+}
+
+async function ensureWorkerTabs(provider: Provider, tabCount: number): Promise<void> {
   for (const [workerId, tabId] of workerTabs.entries()) {
-    const index: number = Number(workerId.slice("chatgpt-worker-".length));
-    if (index > tabCount) {
+    const workerProvider: Provider | undefined = providerFromWorkerId(workerId);
+    const index: number = workerIndex(workerId);
+    if (workerProvider === provider && index > tabCount) {
       workerTabs.delete(workerId);
       readyWorkers.delete(workerId);
       workerCapabilities.delete(workerId);
@@ -334,11 +339,11 @@ async function ensureChatGptWorkerTabs(tabCount: number): Promise<void> {
     }
   }
   for (let index: number = 1; index <= tabCount; index += 1) {
-    const workerId: string = `chatgpt-worker-${index}`;
+    const workerId: string = `${provider}-worker-${index}`;
     if (workerTabs.has(workerId)) {
       continue;
     }
-    const createdTab: unknown = await browser.tabs.create({ url: "https://chatgpt.com/", active: false });
+    const createdTab: unknown = await browser.tabs.create({ url: providerHomeUrl(provider), active: false });
     if (typeof createdTab !== "object" || createdTab === null) {
       throw new Error("worker tab has no id");
     }
@@ -364,12 +369,16 @@ async function closeWorkerTabs(): Promise<void> {
 }
 
 function sendWorkerReady(workerId: string): void {
+  const provider: Provider | undefined = providerFromWorkerId(workerId);
+  if (provider === undefined) {
+    return;
+  }
   const message: WorkerReadyMessage = {
     version: 1,
     type: "worker.ready",
-    provider: "chatgpt",
+    provider,
     worker_id: workerId,
-    capabilities: workerCapabilities.get(workerId) ?? { models: ["chatgpt/default"], reasoning_efforts: [] }
+    capabilities: workerCapabilities.get(workerId) ?? { models: [`${provider}/default`], reasoning_efforts: [] }
   };
   sendToDaemon(message);
 }
@@ -389,6 +398,51 @@ function findWorkerId(tabId: number | undefined): string | undefined {
     }
   }
   return undefined;
+}
+
+function providerFromWorkerId(workerId: string): Provider | undefined {
+  if (workerId.startsWith("chatgpt-worker-")) {
+    return "chatgpt";
+  }
+  if (workerId.startsWith("gemini-worker-")) {
+    return "gemini";
+  }
+  return undefined;
+}
+
+function workerIndex(workerId: string): number {
+  const separator: number = workerId.lastIndexOf("-");
+  return Number(workerId.slice(separator + 1));
+}
+
+function configuredTabCount(provider: Provider): number {
+  switch (provider) {
+    case "chatgpt":
+      return configuredChatGptTabs;
+    case "gemini":
+      return configuredGeminiTabs;
+  }
+}
+
+function providerHomeUrl(provider: Provider): string {
+  switch (provider) {
+    case "chatgpt":
+      return "https://chatgpt.com/";
+    case "gemini":
+      return "https://gemini.google.com/app";
+  }
+}
+
+function conversationUrl(provider: Provider, conversationId: string | undefined): string {
+  if (conversationId === undefined) {
+    return providerHomeUrl(provider);
+  }
+  switch (provider) {
+    case "chatgpt":
+      return `https://chatgpt.com/c/${encodeURIComponent(conversationId)}`;
+    case "gemini":
+      return `https://gemini.google.com/app/${encodeURIComponent(conversationId)}`;
+  }
 }
 
 function sendToDaemon(message: ExtensionHelloMessage | HeartbeatMessage | WorkerReadyMessage | WorkerUnhealthyMessage | ExtensionToDaemonMessage): void {
@@ -411,7 +465,10 @@ function isContentReadyMessage(message: unknown): message is ContentReadyMessage
     return false;
   }
   const value: Record<string, unknown> = message as Record<string, unknown>;
-  return value["type"] === "web2api:content-ready" && value["provider"] === "chatgpt" && typeof value["url"] === "string" && typeof value["loggedIn"] === "boolean";
+  return value["type"] === "web2api:content-ready"
+    && (value["provider"] === "chatgpt" || value["provider"] === "gemini")
+    && typeof value["url"] === "string"
+    && typeof value["loggedIn"] === "boolean";
 }
 
 function isPopupRequest(message: unknown): message is PopupRequest {

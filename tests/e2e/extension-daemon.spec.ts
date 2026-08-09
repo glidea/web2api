@@ -9,7 +9,8 @@ type DaemonProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 const port: number = 3210;
 const outputDirectory: string = resolve("src/extension/.output/chrome-mv3");
-const fixture: string = "<!doctype html><html><head><title>ChatGPT fixture</title></head><body><main>fixture</main></body></html>";
+const chatGptFixture: string = "<!doctype html><html><head><title>ChatGPT fixture</title></head><body><main>fixture</main></body></html>";
+const geminiFixture: string = '<!doctype html><html><head><title>Gemini fixture</title></head><body><a href="https://accounts.google.com/SignOutOptions">Account</a><main>fixture</main></body></html>';
 let context: BrowserContext;
 let userDataDirectory: string;
 let configDirectory: string;
@@ -50,7 +51,7 @@ async function waitForReady(): Promise<void> {
   while (Date.now() < deadline) {
     const response: Response = await fetch(`http://127.0.0.1:${port}/healthz`);
     const body: { extension_connected: boolean; workers_ready: number } = await response.json() as { extension_connected: boolean; workers_ready: number };
-    if (body.extension_connected && body.workers_ready === 2) {
+    if (body.extension_connected && body.workers_ready === 4) {
       return;
     }
     await new Promise<void>((resolvePromise): void => {
@@ -68,7 +69,10 @@ test.beforeAll(async (): Promise<void> => {
     args: [`--disable-extensions-except=${outputDirectory}`, `--load-extension=${outputDirectory}`]
   });
   await context.route("https://chatgpt.com/**", async (route): Promise<void> => {
-    await route.fulfill({ contentType: "text/html", body: fixture });
+    await route.fulfill({ contentType: "text/html", body: chatGptFixture });
+  });
+  await context.route("https://gemini.google.com/**", async (route): Promise<void> => {
+    await route.fulfill({ contentType: "text/html", body: geminiFixture });
   });
 });
 
@@ -79,14 +83,28 @@ test.afterAll(async (): Promise<void> => {
   await rm(configDirectory, { recursive: true, force: true });
 });
 
-test("connects the real extension worker to daemon health", async (): Promise<void> => {
+test("connects isolated ChatGPT and Gemini workers to daemon health", async (): Promise<void> => {
   await waitForReady();
   const workers: Worker[] = context.serviceWorkers();
   expect(workers.length).toBeGreaterThan(0);
   const pages: Page[] = context.pages();
-  const workerPage: Page | undefined = pages.find((page: Page): boolean => page.url().startsWith("https://chatgpt.com/"));
-  if (workerPage === undefined) {
-    throw new Error("worker tab was not created");
+  const chatGptPages: Page[] = pages.filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/"));
+  const geminiPages: Page[] = pages.filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/"));
+  expect(chatGptPages).toHaveLength(2);
+  expect(geminiPages).toHaveLength(2);
+  for (const workerPage of [...chatGptPages, ...geminiPages]) {
+    await expect(workerPage.locator("html")).toHaveAttribute("data-web2api-content-script", "ready");
   }
-  await expect(workerPage.locator("html")).toHaveAttribute("data-web2api-content-script", "ready");
+
+  const chatGptPageUrls: string[] = chatGptPages.map((page: Page): string => page.url());
+  await geminiPages[0]?.close();
+  await waitForReady();
+  const replacementDeadline: number = Date.now() + 5_000;
+  while (Date.now() < replacementDeadline && context.pages().filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/")).length !== 2) {
+    await new Promise<void>((resolvePromise): void => {
+      setTimeout(resolvePromise, 100);
+    });
+  }
+  expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/"))).toHaveLength(2);
+  expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/")).map((page: Page): string => page.url())).toEqual(chatGptPageUrls);
 });

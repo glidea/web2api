@@ -79,12 +79,12 @@
 - 真实 Gemini 网页 smoke
 
 ## TODO 清单
-- [ ] 1. 写双 Provider MV3 E2E，定义 tab 生命周期和路由行为
-- [ ] 2. 注册 `https://gemini.google.com/*` Content Script 与 host permission
-- [ ] 3. 实现 Provider 独立的 tab 创建、恢复、关闭和 worker ready
-- [ ] 4. 接入 Gemini Adapter 的模型发现、提交、delta、完成和取消事件
-- [ ] 5. 支持 `gemini/default`、动态 `gemini/<model>` 与严格 reasoning effort
-- [ ] 6. 支持 Gemini `previous_response_id` 导航回同一 `/app/<id>` 会话
+- [x] 1. 写双 Provider MV3 E2E，定义 tab 生命周期和路由行为
+- [x] 2. 注册 `https://gemini.google.com/*` Content Script 与 host permission
+- [x] 3. 实现 Provider 独立的 tab 创建、恢复、关闭和 worker ready
+- [x] 4. 接入 Gemini Adapter 的模型发现、提交、delta、完成和取消事件
+- [x] 5. 支持 `gemini/default`、动态 `gemini/<model>` 与严格 reasoning effort
+- [x] 6. 支持 Gemini `previous_response_id` 导航回同一 `/app/<id>` 会话
 
 ## 验收测试步骤
 1. 运行 `pnpm test:e2e:extension-daemon`

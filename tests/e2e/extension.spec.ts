@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 
 const extensionOutputDirectory: string = resolve("src/extension/.output/chrome-mv3");
 const chatgptFixture: string = `<!doctype html><html><head><title>ChatGPT fixture</title></head><body><main>fixture</main></body></html>`;
+const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture</title></head><body><main>fixture</main></body></html>`;
 
 let context: BrowserContext;
 let userDataDirectory: string;
@@ -34,6 +35,9 @@ test.beforeAll(async (): Promise<void> => {
   await context.route("https://chatgpt.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: chatgptFixture });
   });
+  await context.route("https://gemini.google.com/**", async (route): Promise<void> => {
+    await route.fulfill({ contentType: "text/html", body: geminiFixture });
+  });
   await context.route("https://example.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body>example</body></html>" });
   });
@@ -49,11 +53,16 @@ test("loads the extension and exposes its service worker", async (): Promise<voi
   expect(extensionId).toMatch(/^[a-z]{32}$/);
 });
 
-test("injects content script only into ChatGPT pages", async (): Promise<void> => {
+test("injects provider content scripts only into supported pages", async (): Promise<void> => {
   const chatgptPage: Page = await context.newPage();
   await chatgptPage.goto("https://chatgpt.com/");
   await expect(chatgptPage.locator("html")).toHaveAttribute("data-web2api-content-script", "ready");
   await chatgptPage.close();
+
+  const geminiPage: Page = await context.newPage();
+  await geminiPage.goto("https://gemini.google.com/app");
+  await expect(geminiPage.locator("html")).toHaveAttribute("data-web2api-content-script", "ready");
+  await geminiPage.close();
 
   const otherPage: Page = await context.newPage();
   await otherPage.goto("https://example.com/");
