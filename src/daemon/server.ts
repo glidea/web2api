@@ -93,7 +93,15 @@ export class DaemonServer {
         this.sendError(response, 401, "invalid_api_key", "Invalid API key");
         return;
       }
-      const models: ModelList = this.modelsProvider === undefined ? { object: "list", data: [{ id: "chatgpt/default", object: "model", owned_by: "web2api" }] } : this.modelsProvider();
+      const models: ModelList = this.modelsProvider === undefined
+        ? {
+            object: "list",
+            data: [
+              { id: "chatgpt/default", object: "model", owned_by: "web2api" },
+              { id: "gemini/default", object: "model", owned_by: "web2api" }
+            ]
+          }
+        : this.modelsProvider();
       this.sendJson(response, 200, models);
       return;
     }

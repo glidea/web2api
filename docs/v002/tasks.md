@@ -158,12 +158,12 @@ popup 分别展示 ChatGPT、Gemini 的登录、Content Script、worker、模型
 - 固定维护 Gemini 模型表
 
 ## TODO 清单
-- [ ] 1. 新增 Gemini profile setup 命令和 profile 路径约定
-- [ ] 2. 新增真实 Gemini smoke Playwright 套件
+- [x] 1. 新增 Gemini profile setup 命令和 profile 路径约定
+- [x] 2. 新增真实 Gemini smoke Playwright 套件
 - [ ] 3. 验证动态模型发现与一次真实模型切换
 - [ ] 4. 验证文本、流式、多轮、图片输入、图片生成和函数调用
 - [ ] 5. 根据真实 DOM 修正选择器，并同步回归 fixture
-- [ ] 6. 在 `AGENTS.md` 记录真实 Gemini smoke 的凭据隔离规则
+- [x] 6. 在 `AGENTS.md` 记录真实 Gemini smoke 的凭据隔离规则
 
 ## 验收测试步骤
 1. 使用 `/Users/wangyusong/.web2api/gemini-profile`，确认已登录 Gemini
@@ -185,12 +185,12 @@ popup 分别展示 ChatGPT、Gemini 的登录、Content Script、worker、模型
 - 为未来 Provider 提前抽象插件框架
 
 ## TODO 清单
-- [ ] 1. 更新 README 的模型路由、配置、能力和 smoke 命令
-- [ ] 2. 更新 `docs/acceptance.md` 的双 Provider 验收步骤
-- [ ] 3. 全库删除 `max_tabs`、ChatGPT 专属通用错误码和重复 Provider 分支
-- [ ] 4. 检查 manifest、npm pack 和 daemon bundle 内容
-- [ ] 5. 运行完整 Vitest、TypeScript 和 Playwright 回归
-- [ ] 6. 记录真实 Gemini 验收结果与已知网页 DOM 风险
+- [x] 1. 更新 README 的模型路由、配置、能力和 smoke 命令
+- [x] 2. 更新 `docs/acceptance.md` 的双 Provider 验收步骤
+- [x] 3. 全库删除 `max_tabs`、ChatGPT 专属通用错误码和重复 Provider 分支
+- [x] 4. 检查 manifest、npm pack 和 daemon bundle 内容
+- [x] 5. 运行完整 Vitest、TypeScript 和 Playwright 回归
+- [x] 6. 记录真实 Gemini 验收结果与已知网页 DOM 风险
 
 ## 验收测试步骤
 1. 运行 `pnpm test`
@@ -199,3 +199,10 @@ popup 分别展示 ChatGPT、Gemini 的登录、Content Script、worker、模型
 4. 运行 `pnpm test:smoke:chatgpt` 与 `pnpm test:smoke:gemini`
 5. 运行 `pnpm pack --dry-run`，确认发布包包含 daemon 且不包含 profile、凭据和测试产物
 6. 从 popup 修改两个 Provider 标签页数量后，用真实客户端分别完成 ChatGPT 与 Gemini 请求
+
+## 2026-08-09 验收记录
+
+- 自动化通过：71 个 Vitest、TypeScript、3 个 extension E2E、1 个 daemon E2E、4 个 Responses E2E
+- `npm pack --dry-run` 通过，发布包只有 README、CLI、daemon bundle 和 package metadata
+- 真实 Gemini smoke 在登录门槛失败：专用 profile 页面仍返回 `/ServiceLogin`，后续动态模型和七项真实能力未执行
+- 已认证页面的账号控件、模型菜单和附件选择器仍需真实 smoke 验证，当前不得把 Gemini 集成标记为发布完成

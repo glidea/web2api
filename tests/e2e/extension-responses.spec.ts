@@ -169,28 +169,7 @@ test("keeps ChatGPT Responses API behavior after introducing Provider routing", 
   if (workerPages.length < 4) {
     throw new Error("worker tabs were not created");
   }
-  for (const workerPage of workerPages.filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/"))) {
-    await workerPage.evaluate((): void => {
-      document.body.innerHTML = '<textarea data-testid="composer"></textarea><button data-testid="send-button">Send</button>';
-      const button: HTMLButtonElement = document.querySelector("[data-testid=send-button]") as HTMLButtonElement;
-      button.addEventListener("click", (): void => {
-        const composer: HTMLTextAreaElement = document.querySelector("textarea[data-testid=composer]") as HTMLTextAreaElement;
-        const startingPath: string = window.location.pathname;
-        const currentConversation: string | undefined = startingPath.startsWith("/c/") ? startingPath.slice(3) : undefined;
-        const conversationId: string = currentConversation ?? (composer.value === "hello" ? "fixture-conversation" : "fresh-conversation");
-        history.pushState({}, "", `/c/${conversationId}`);
-        setTimeout((): void => {
-          const assistant: HTMLElement = document.createElement("div");
-          assistant.dataset.messageAuthorRole = "assistant";
-          assistant.textContent = composer.value.includes("WEB2API FUNCTION PROTOCOL V1")
-            ? '<web2api_function_calls>{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>'
-            : composer.value === "hello" ? "hello from fixture" : startingPath;
-          document.body.append(assistant);
-        }, 100);
-      });
-    });
-  }
-  for (const workerPage of workerPages.filter((candidate: Page): boolean => candidate.url().startsWith("https://gemini.google.com/"))) {
+  for (const workerPage of workerPages) {
     await workerPage.reload();
   }
   const deadline: number = Date.now() + 10_000;
