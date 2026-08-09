@@ -106,12 +106,12 @@
 - daemon 代替客户端执行函数
 
 ## TODO 清单
-- [ ] 1. 为 Gemini 图片输入、图片生成和函数调用添加 E2E 失败测试
-- [ ] 2. 把已解析图片按请求顺序上传到 Gemini 页面
-- [ ] 3. 读取 Gemini 最终生成图片并返回 `image_generation_call.result`
-- [ ] 4. 验证函数提示词结果转换为标准 `function_call`
-- [ ] 5. 验证 `function_call_output` 使用原 Gemini conversation 续接
-- [ ] 6. 验证流式函数调用不泄漏内部协议标记
+- [x] 1. 为 Gemini 图片输入、图片生成和函数调用添加 E2E 失败测试
+- [x] 2. 把已解析图片按请求顺序上传到 Gemini 页面
+- [x] 3. 读取 Gemini 最终生成图片并返回 `image_generation_call.result`
+- [x] 4. 验证函数提示词结果转换为标准 `function_call`
+- [x] 5. 验证 `function_call_output` 使用原 Gemini conversation 续接
+- [x] 6. 验证流式函数调用不泄漏内部协议标记
 
 ## 验收测试步骤
 1. 运行 `pnpm test:e2e:extension-responses`

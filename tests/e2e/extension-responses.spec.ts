@@ -33,18 +33,48 @@ const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture<
 <button data-test-id="bard-mode-menu-button" aria-expanded="true">Flash</button>
 <gem-menu-item role="menuitem" data-mode-id="flash"><span class="label">3.6 Flash</span></gem-menu-item>
 <gem-menu-item role="menuitem"><span class="label">Extended thinking</span></gem-menu-item>
+<input class="hidden-file-input" type="file" multiple>
+<div id="attachment-previews"></div>
 <div class="ql-editor" role="textbox" contenteditable="true"></div>
 <button aria-label="Send"><span data-mat-icon-name="send"></span></button>
 <script>
+const uploadInput = document.querySelector('input[type=file]');
+uploadInput.addEventListener('change', () => {
+  const previews = document.querySelector('#attachment-previews');
+  for (const file of Array.from(uploadInput.files || [])) {
+    const preview = document.createElement('file-preview');
+    preview.dataset.mediaType = file.type;
+    previews.append(preview);
+  }
+});
 document.querySelector('button[aria-label=Send]').addEventListener('click', () => {
   const composer = document.querySelector('[role=textbox]');
+  const prompt = composer.textContent;
+  const attachmentTypes = Array.from(uploadInput.files || []).map((file) => file.type);
   const startingPath = location.pathname;
   const currentConversation = startingPath.startsWith('/app/') ? startingPath.slice(5) : undefined;
-  const conversationId = currentConversation || (composer.textContent === 'hello gemini' ? 'gemini-fixture-conversation' : 'gemini-fresh-conversation');
+  const conversationId = currentConversation || (prompt === 'hello gemini' ? 'gemini-fixture-conversation' : 'gemini-fresh-conversation');
   history.pushState({}, '', '/app/' + conversationId);
   setTimeout(() => {
     const assistant = document.createElement('model-response');
-    assistant.innerHTML = '<message-content>' + (composer.textContent === 'hello gemini' ? 'hello from gemini fixture' : startingPath) + '</message-content>';
+    const message = document.createElement('message-content');
+    if (prompt === 'generate fixture image') {
+      const image = document.createElement('img');
+      image.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+      assistant.append(image);
+    } else if (prompt.includes('"tool_outputs":[{"call_id":"call_weather"')) {
+      message.textContent = 'Gemini says 21 degrees.';
+      assistant.append(message);
+    } else if (prompt.includes('WEB2API FUNCTION PROTOCOL V1')) {
+      message.textContent = '<web2api_function_calls>{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}</web2api_function_calls>';
+      assistant.append(message);
+    } else if (prompt === 'describe attachments') {
+      message.textContent = attachmentTypes.join(',');
+      assistant.append(message);
+    } else {
+      message.textContent = prompt === 'hello gemini' ? 'hello from gemini fixture' : startingPath;
+      assistant.append(message);
+    }
     document.body.append(assistant);
   }, 100);
 });
@@ -322,4 +352,91 @@ test("serves Gemini text, streaming and continued responses without using ChatGP
   expect(parallelGeminiBody.id).toMatch(/^resp_gemini_/);
   expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/"))).toHaveLength(2);
   expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/"))).toHaveLength(2);
+});
+
+test("serves Gemini image input and generated image responses", async (): Promise<void> => {
+  const inputResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "gemini/default",
+      input: [
+        { type: "input_text", text: "describe attachments" },
+        { type: "input_image", image_url: "data:image/png;base64,AQID" },
+        { type: "input_image", image_url: "data:image/jpeg;base64,BAUG" }
+      ]
+    })
+  });
+  expect(inputResponse.status).toBe(200);
+  const inputBody: { output: Array<{ content?: Array<{ text: string }> }> } = await inputResponse.json() as { output: Array<{ content?: Array<{ text: string }> }> };
+  expect(inputBody.output[0]?.content?.[0]?.text).toBe("image/png,image/jpeg");
+
+  const generationResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "gemini/default",
+      input: "generate fixture image",
+      tools: [{ type: "image_generation" }]
+    })
+  });
+  expect(generationResponse.status).toBe(200);
+  const generationBody: { output: Array<{ type: string; result?: string }> } = await generationResponse.json() as { output: Array<{ type: string; result?: string }> };
+  const imageResult: string | undefined = generationBody.output.find((item: { type: string }): boolean => item.type === "image_generation_call")?.result;
+  expect(imageResult).toBe("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  expect(Buffer.from(imageResult ?? "", "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+});
+
+test("round trips Gemini function calls and hides the private streaming protocol", async (): Promise<void> => {
+  const tools: Array<Record<string, unknown>> = [{
+    type: "function",
+    name: "get_weather",
+    description: "Get the current weather",
+    parameters: {
+      type: "object",
+      properties: { city: { type: "string" } },
+      required: ["city"],
+      additionalProperties: false
+    },
+    strict: true
+  }];
+  const callResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "gemini/default", input: "Weather in Paris?", tools })
+  });
+  expect(callResponse.status).toBe(200);
+  const callBody: { id: string; output: Array<Record<string, unknown>> } = await callResponse.json() as { id: string; output: Array<Record<string, unknown>> };
+  expect(callBody.output).toMatchObject([{
+    type: "function_call",
+    status: "completed",
+    call_id: "call_weather",
+    name: "get_weather",
+    arguments: '{"city":"Paris"}'
+  }]);
+
+  const finalResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "gemini/default",
+      previous_response_id: callBody.id,
+      input: [{ type: "function_call_output", call_id: "call_weather", output: '{"temperature":21}' }]
+    })
+  });
+  expect(finalResponse.status).toBe(200);
+  const finalBody: { id: string; output: Array<{ content?: Array<{ text: string }> }> } = await finalResponse.json() as { id: string; output: Array<{ content?: Array<{ text: string }> }> };
+  expect(finalBody.id.split("_").slice(0, 3)).toEqual(callBody.id.split("_").slice(0, 3));
+  expect(finalBody.output[0]?.content?.[0]?.text).toBe("Gemini says 21 degrees.");
+
+  const streamResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "gemini/default", input: "Weather in Paris?", tools, stream: true })
+  });
+  const streamBody: string = await streamResponse.text();
+  expect(streamResponse.status).toBe(200);
+  expect(streamBody).toContain("event: response.function_call_arguments.done");
+  expect(streamBody).toContain('"name":"get_weather"');
+  expect(streamBody).not.toContain("web2api_function_calls");
 });
