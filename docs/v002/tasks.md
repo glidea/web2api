@@ -161,7 +161,7 @@ popup 分别展示 ChatGPT、Gemini 的登录、Content Script、worker、模型
 - [x] 1. 新增 Gemini profile setup 命令和 profile 路径约定
 - [x] 2. 新增真实 Gemini smoke Playwright 套件
 - [x] 3. 验证动态模型发现与一次真实模型切换
-- [ ] 4. 验证文本、流式、多轮、图片输入、图片生成和函数调用
+- [x] 4. 验证文本、流式、多轮、图片输入、图片生成和函数调用
 - [x] 5. 根据真实 DOM 修正选择器，并同步回归 fixture
 - [x] 6. 在 `AGENTS.md` 记录真实 Gemini smoke 的凭据隔离规则
 
@@ -197,13 +197,12 @@ popup 分别展示 ChatGPT、Gemini 的登录、Content Script、worker、模型
 2. 运行 `pnpm typecheck`
 3. 运行 `pnpm test:e2e:extension`、`pnpm test:e2e:extension-daemon`、`pnpm test:e2e:extension-responses`
 4. 运行 `pnpm test:smoke:chatgpt` 与 `pnpm test:smoke:gemini`
-5. 运行 `pnpm pack --dry-run`，确认发布包包含 daemon 且不包含 profile、凭据和测试产物
+5. 运行 `npm pack --dry-run`，确认发布包包含 daemon 且不包含 profile、凭据和测试产物
 6. 从 popup 修改两个 Provider 标签页数量后，用真实客户端分别完成 ChatGPT 与 Gemini 请求
 
 ## 2026-08-09 验收记录
 
-- 自动化通过：85 个 Vitest、TypeScript、3 个 extension E2E、1 个 daemon E2E、4 个 Responses E2E
+- 自动化通过：89 个 Vitest、TypeScript、3 个 extension E2E、1 个 daemon E2E、4 个 Responses E2E
 - `npm pack --dry-run` 通过，发布包只有 README、CLI、daemon bundle 和 package metadata
-- 真实 Gemini smoke 为 4 项通过、1 项跳过：动态模型发现与切换、文本、流式、多轮、图片输入和函数调用已通过本地 `/v1/responses` 验证
-- 图片生成因专用扩展 profile 当前页面未显示图片工具而跳过；已登录的 In App Browser 真实页面已验证 `image_create` 工具和 1024x559 blob 图片生成，但该结果未经过扩展 `/v1/responses` 链路
-- 测试日志未记录 Cookie、token 或图片原始内容；Task-006 第 4 项和 Gemini 发布验收仍未完成
+- 真实 Gemini smoke 为 5 项全部通过、无跳过：动态模型发现与切换、默认模型、文本、流式、多轮、图片输入、图片生成字节和函数调用均通过本地 `/v1/responses` 验证
+- 独立 Profile 登录态保存在 `~/.web2api/gemini-profile`；测试日志未记录 Cookie、token、完整 prompt 或图片原始内容

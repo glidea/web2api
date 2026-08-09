@@ -109,7 +109,7 @@ function encodeBase64(bytes: Uint8Array): string {
 }
 
 async function waitForConversationId(): Promise<string> {
-  const deadline: number = Date.now() + 30_000;
+  const deadline: number = Date.now() + 120_000;
   while (Date.now() < deadline) {
     const conversationId: string | undefined = parseConversationId(window.location.href);
     if (conversationId !== undefined) {

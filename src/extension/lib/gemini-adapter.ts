@@ -167,9 +167,15 @@ export async function uploadImages(documentRoot: Document, images: ImagePayload[
 }
 
 export async function enableImageGeneration(documentRoot: Document): Promise<void> {
+  if (isImageGenerationSelected(documentRoot)) {
+    return;
+  }
   let imageTool: HTMLButtonElement | null = findImageGenerationTool(documentRoot);
   const deadline: number = Date.now() + 3_000;
   while (imageTool === null && Date.now() < deadline) {
+    if (isImageGenerationSelected(documentRoot)) {
+      return;
+    }
     const uploadMenuButton: HTMLButtonElement | null = findUploadMenuButton(documentRoot);
     if (uploadMenuButton !== null && uploadMenuButton.getAttribute("aria-expanded") !== "true") {
       uploadMenuButton.click();
@@ -182,7 +188,14 @@ export async function enableImageGeneration(documentRoot: Document): Promise<voi
   }
   if (imageTool.getAttribute("aria-checked") !== "true") {
     imageTool.click();
-    await delay(25);
+    const selectionDeadline: number = Date.now() + 3_000;
+    while (Date.now() < selectionDeadline) {
+      if (isImageGenerationSelected(documentRoot)) {
+        return;
+      }
+      await delay(25);
+    }
+    throw new Error("image_generation_not_enabled");
   }
 }
 
@@ -195,7 +208,26 @@ function findUploadMenuButton(documentRoot: Document): HTMLButtonElement | null 
 }
 
 function findImageGenerationTool(documentRoot: Document): HTMLButtonElement | null {
-  return documentRoot.querySelector<HTMLElement>('[data-mat-icon-name="image_create"], mat-icon[fonticon="image_create"]')?.closest<HTMLButtonElement>('button[role="menuitemcheckbox"]') ?? null;
+  const icons: HTMLElement[] = Array.from(documentRoot.querySelectorAll<HTMLElement>('[data-mat-icon-name="image_create"], mat-icon[fonticon="image_create"]'));
+  for (const icon of icons) {
+    const button: HTMLButtonElement | null = icon.closest<HTMLButtonElement>('button[role="menuitemcheckbox"]');
+    if (button !== null && button.getClientRects().length > 0 && !button.disabled && button.getAttribute("aria-disabled") !== "true") {
+      return button;
+    }
+  }
+  return null;
+}
+
+function isImageGenerationSelected(documentRoot: Document): boolean {
+  const icons: HTMLElement[] = Array.from(documentRoot.querySelectorAll<HTMLElement>('[data-mat-icon-name="image_create"], mat-icon[fonticon="image_create"]'));
+  return icons.some((icon: HTMLElement): boolean => {
+    const button: HTMLButtonElement | null = icon.closest<HTMLButtonElement>("button");
+    if (button === null) {
+      return false;
+    }
+    const label: string = button.getAttribute("aria-label")?.trim().toLowerCase() ?? "";
+    return button.getAttribute("aria-checked") === "true" || label.startsWith("deselect") || label.startsWith("取消选择");
+  });
 }
 
 export function cancelGeneration(documentRoot: Document): void {
@@ -247,6 +279,10 @@ export async function waitForGeneratedImage(documentRoot: Document, previousMess
     const image: HTMLImageElement | null = assistant?.querySelector<HTMLImageElement>("img[src]") ?? null;
     if (image !== null && findStopButton(documentRoot) === null) {
       return await readImage(image);
+    }
+    const responseText: string = assistant === undefined ? "" : getAssistantTextNode(assistant)?.textContent?.trim() ?? "";
+    if (responseText.length > 0 && findStopButton(documentRoot) === null) {
+      throw new Error("image_generation_failed");
     }
     await delay(100);
   }

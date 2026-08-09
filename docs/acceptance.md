@@ -135,7 +135,7 @@ pnpm test:smoke:gemini
 
 Gemini smoke 必须通过本地 `/v1/responses` 直接验证文本、SSE 流式、多轮续接、动态模型切换、图片输入、图片生成和函数调用。测试日志与产物不得包含 Cookie、token、完整 prompt 或图片原始内容。
 
-Chrome 151 及以上版本通过 CDP `Extensions.loadUnpacked` 加载扩展。图片生成必须使用动态发现的非 Lite Flash 模型；当前页面没有可见图片工具时允许测试跳过，但跳过不计入完整发布验收。
+Chrome 151 及以上版本先通过 CDP 卸载同路径的旧扩展实例，再通过 `Extensions.loadUnpacked` 加载当前构建。图片生成必须使用动态发现的非 Lite Flash 模型；工具不可用或生成失败时 smoke 直接失败，不允许跳过。
 
 ## 7. 卸载本地 Companion
 

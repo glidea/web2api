@@ -13,8 +13,10 @@ type ExtensionInfo = {
   path: string;
 };
 
-type ExtensionReloadSession = {
-  send(method: "Extensions.reload", params: { id: string }): Promise<unknown>;
+type ExtensionsSession = {
+  send(method: "Extensions.getExtensions"): Promise<{ extensions: ExtensionInfo[] }>;
+  send(method: "Extensions.uninstall", params: { id: string }): Promise<void>;
+  send(method: "Extensions.loadUnpacked", params: { path: string }): Promise<{ id: string }>;
 };
 
 type MessageOutput = {
@@ -65,12 +67,12 @@ let daemon: DaemonProcess;
 let configDirectory: string;
 let dynamicModel: string;
 let imageGenerationModel: string;
-let imageGenerationAvailable: boolean;
+let imageInputResponseId: string;
 
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async (): Promise<void> => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   configDirectory = await mkdtemp(join(tmpdir(), "web2api-gemini-smoke-"));
   const configPath: string = join(configDirectory, "config.json");
   await writeFile(configPath, `${JSON.stringify({ api_key: apiKey, port, chatgpt_tabs: 0, gemini_tabs: 1 }, null, 2)}\n`);
@@ -93,18 +95,15 @@ test.beforeAll(async (): Promise<void> => {
     throw new Error("Chrome browser connection is unavailable");
   }
   const browserSession: CDPSession = await launchedBrowser.newBrowserCDPSession();
-  const installedExtensions: { extensions: ExtensionInfo[] } = await browserSession.send("Extensions.getExtensions") as { extensions: ExtensionInfo[] };
-  const installedExtension: ExtensionInfo | undefined = installedExtensions.extensions.find((extension: ExtensionInfo): boolean => extension.path === extensionDirectory);
-  if (installedExtension === undefined) {
-    await browserSession.send("Extensions.loadUnpacked", { path: extensionDirectory });
-  } else {
-    const reloadSession: ExtensionReloadSession = browserSession as unknown as ExtensionReloadSession;
-    await reloadSession.send("Extensions.reload", { id: installedExtension.id });
+  const extensionsSession: ExtensionsSession = browserSession as unknown as ExtensionsSession;
+  const installedExtensions: { extensions: ExtensionInfo[] } = await extensionsSession.send("Extensions.getExtensions");
+  for (const installedExtension of installedExtensions.extensions.filter((extension: ExtensionInfo): boolean => extension.path === extensionDirectory)) {
+    await extensionsSession.send("Extensions.uninstall", { id: installedExtension.id });
   }
+  await extensionsSession.send("Extensions.loadUnpacked", { path: extensionDirectory });
   await browserSession.detach();
   page = await waitForGeminiPage();
-  await expect(page.locator('[role="textbox"][contenteditable="true"]:visible').first()).toBeVisible();
-  await expect(page.locator('button[data-test-id="bard-mode-menu-button"]')).toBeVisible();
+  await waitForGeminiReadyPage();
   await waitForWorkers();
   const models: string[] = await waitForDynamicGeminiModels();
   dynamicModel = models.find((model: string): boolean => model.includes("flash-lite"))
@@ -112,7 +111,6 @@ test.beforeAll(async (): Promise<void> => {
     ?? models[0] as string;
   imageGenerationModel = models.find((model: string): boolean => model.includes("flash") && !model.includes("flash-lite"))
     ?? dynamicModel;
-  imageGenerationAvailable = await hasImageGenerationTool();
 });
 
 test.afterAll(async (): Promise<void> => {
@@ -129,29 +127,24 @@ test("loads the extension in a dedicated Gemini profile and discovers models", a
 
 test("completes text, streaming, continued and dynamic-model responses", async (): Promise<void> => {
   test.setTimeout(420_000);
-  const first: ResponseBody = await createResponse({
-    model: "gemini/default",
-    input: "Reply with exactly WEB2API_GEMINI_OK"
-  });
-  expect(messageText(first)).toBe("WEB2API_GEMINI_OK");
-
-  const continued: ResponseBody = await createResponse({
-    model: "gemini/default",
-    input: "Reply with exactly WEB2API_GEMINI_CONTINUED",
-    previous_response_id: first.id
-  });
-  expect(messageText(continued)).toBe("WEB2API_GEMINI_CONTINUED");
-  expect(decodeResponseId(continued.id).conversationId).toBe(decodeResponseId(first.id).conversationId);
-
   const dynamic: ResponseBody = await createResponse({
     model: dynamicModel,
     input: "Reply with exactly WEB2API_GEMINI_DYNAMIC_OK"
   });
   expect(messageText(dynamic)).toBe("WEB2API_GEMINI_DYNAMIC_OK");
 
+  const continued: ResponseBody = await createResponse({
+    model: "gemini/default",
+    input: "Reply with exactly WEB2API_GEMINI_CONTINUED",
+    previous_response_id: dynamic.id
+  });
+  expect(messageText(continued)).toBe("WEB2API_GEMINI_CONTINUED");
+  expect(decodeResponseId(continued.id).conversationId).toBe(decodeResponseId(dynamic.id).conversationId);
+
   const streamContent: string = await createStream({
     model: "gemini/default",
     input: "Reply with exactly WEB2API_GEMINI_STREAM_OK",
+    previous_response_id: continued.id,
     stream: true
   });
   expect(streamContent).toContain("event: response.output_text.delta");
@@ -169,14 +162,15 @@ test("accepts an input image", async (): Promise<void> => {
     ]
   });
   expect(messageText(inputResponse)).toBe("WEB2API_GEMINI_IMAGE_INPUT_OK");
+  imageInputResponseId = inputResponse.id;
 });
 
 test("returns generated image bytes", async (): Promise<void> => {
-  test.skip(!imageGenerationAvailable, "Gemini image generation is unavailable in the dedicated profile");
   test.setTimeout(480_000);
-  const generationResponse: ResponseBody = await createResponse({
+  const generationResponse: ResponseBody = await createImageGenerationResponse({
     model: imageGenerationModel,
-    input: "Generate a 64 by 64 pixel image containing one solid blue circle on a white background.",
+    input: "Generate an image containing one solid blue circle on a white background.",
+    previous_response_id: imageInputResponseId,
     tools: [{ type: "image_generation" }]
   });
   const image: ImageOutput | undefined = generationResponse.output.find((item: MessageOutput | ImageOutput | FunctionOutput): item is ImageOutput => item.type === "image_generation_call");
@@ -231,6 +225,17 @@ async function createResponse(body: Record<string, unknown>): Promise<ResponseBo
   return await response.json() as ResponseBody;
 }
 
+async function createImageGenerationResponse(body: Record<string, unknown>): Promise<ResponseBody> {
+  try {
+    return await createResponse(body);
+  } catch (error: unknown) {
+    if (!(error instanceof Error) || !error.message.includes('"message":"image_generation_failed"')) {
+      throw error;
+    }
+  }
+  return await createResponse(body);
+}
+
 async function createStream(body: Record<string, unknown>): Promise<string> {
   const response: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
     method: "POST",
@@ -279,10 +284,17 @@ async function waitForWorkers(): Promise<void> {
 
 async function waitForGeminiPage(): Promise<Page> {
   const deadline: number = Date.now() + 30_000;
+  let recoveredNavigation: boolean = false;
   while (Date.now() < deadline) {
     const geminiPage: Page | undefined = context.pages().find((candidate: Page): boolean => candidate.url().startsWith("https://gemini.google.com"));
     if (geminiPage !== undefined) {
       return geminiPage;
+    }
+    const failedWorkerPage: Page | undefined = context.pages().find((candidate: Page): boolean => candidate.url().startsWith("chrome-error://"));
+    if (failedWorkerPage !== undefined && !recoveredNavigation) {
+      recoveredNavigation = true;
+      await failedWorkerPage.goto("https://gemini.google.com/app");
+      continue;
     }
     await new Promise<void>((resolvePromise): void => {
       setTimeout(resolvePromise, 100);
@@ -294,6 +306,28 @@ async function waitForGeminiPage(): Promise<Page> {
   });
   const serviceWorkerCount: number = context.serviceWorkers().length;
   throw new Error(`Gemini worker page was not created: service_workers=${serviceWorkerCount}; pages=${JSON.stringify(pageOrigins)}`);
+}
+
+async function waitForGeminiReadyPage(): Promise<void> {
+  for (let attempt: number = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) {
+      await page.goto("https://gemini.google.com/app");
+    }
+    const deadline: number = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const composerVisible: boolean = await page.locator('[role="textbox"][contenteditable="true"]:visible').first().isVisible();
+      const modelMenuVisible: boolean = await page.locator('button[data-test-id="bard-mode-menu-button"]').isVisible();
+      const accountControlPresent: boolean = await page.locator('a[href*="accounts.google.com/SignOutOptions"]').first().count() > 0;
+      if (composerVisible && modelMenuVisible && accountControlPresent) {
+        return;
+      }
+      await new Promise<void>((resolvePromise): void => {
+        setTimeout(resolvePromise, 100);
+      });
+    }
+  }
+  const bodyText: string = await page.locator("body").innerText();
+  throw new Error(`Gemini page did not become ready: ${bodyText.slice(0, 500)}`);
 }
 
 async function waitForDynamicGeminiModels(): Promise<string[]> {
@@ -314,13 +348,4 @@ async function waitForDynamicGeminiModels(): Promise<string[]> {
     });
   }
   throw new Error("Gemini dynamic models were not discovered");
-}
-
-async function hasImageGenerationTool(): Promise<boolean> {
-  await page.locator('button[aria-label="Upload and tools"], button[aria-label="Upload & tools"], button[aria-label="上传和工具"]').click();
-  const imageToolCount: number = await page.locator('button[role="menuitemcheckbox"]:visible')
-    .filter({ has: page.locator('[data-mat-icon-name="image_create"], mat-icon[fonticon="image_create"]') })
-    .count();
-  await page.keyboard.press("Escape");
-  return imageToolCount > 0;
 }

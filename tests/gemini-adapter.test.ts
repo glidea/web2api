@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   cancelGeneration,
   detectImageMediaType,
@@ -308,6 +308,52 @@ describe("Gemini adapter", (): void => {
     expect(selections).toBe(1);
   });
 
+  it("ignores stale image icons before the current image tool", async (): Promise<void> => {
+    createPage(`
+      <mat-icon fonticon="image_create"></mat-icon>
+      <button role="menuitemcheckbox" aria-checked="false">
+        <mat-icon fonticon="image_create"></mat-icon>
+      </button>
+    `);
+    const imageTool: HTMLButtonElement = document.querySelector("button") as HTMLButtonElement;
+    let selections: number = 0;
+    imageTool.addEventListener("click", (): void => {
+      selections += 1;
+      imageTool.setAttribute("aria-checked", "true");
+    });
+
+    await enableImageGeneration(document);
+    expect(selections).toBe(1);
+  });
+
+  it("accepts the current Gemini selected image chip", async (): Promise<void> => {
+    createPage(`
+      <button role="menuitemcheckbox" aria-checked="false">
+        <mat-icon fonticon="image_create"></mat-icon>
+      </button>
+    `);
+    const imageTool: HTMLButtonElement = document.querySelector("button") as HTMLButtonElement;
+    imageTool.addEventListener("click", (): void => {
+      document.body.innerHTML = `
+        <button aria-label="取消选择“图片”">
+          <mat-icon fonticon="image_create"></mat-icon>
+        </button>
+      `;
+    });
+
+    await enableImageGeneration(document);
+    expect(document.querySelector('button[aria-label="取消选择“图片”"]')).not.toBeNull();
+  });
+
+  it("rejects a disabled image generation tool", async (): Promise<void> => {
+    createPage(`
+      <button role="menuitemcheckbox" aria-checked="false" aria-disabled="true" disabled>
+        <mat-icon fonticon="image_create"></mat-icon>
+      </button>
+    `);
+    await expect(enableImageGeneration(document)).rejects.toThrowError("image_generation_not_available");
+  });
+
   it("reopens image tools after a model transition replaces the menu", async (): Promise<void> => {
     createPage('<button aria-label="Upload &amp; tools" aria-expanded="false"></button>');
     const firstMenuButton: HTMLButtonElement = document.querySelector("button") as HTMLButtonElement;
@@ -321,7 +367,11 @@ describe("Gemini adapter", (): void => {
         currentMenuButton.setAttribute("aria-expanded", "true");
         const imageTool: HTMLButtonElement = document.createElement("button");
         imageTool.setAttribute("role", "menuitemcheckbox");
+        imageTool.setAttribute("aria-checked", "false");
         imageTool.innerHTML = '<mat-icon fonticon="image_create"></mat-icon>';
+        imageTool.addEventListener("click", (): void => {
+          imageTool.setAttribute("aria-checked", "true");
+        });
         document.body.append(imageTool);
       });
     }, 100);
@@ -387,6 +437,16 @@ describe("Gemini adapter", (): void => {
       document.body.append(response);
     }, 10);
     await expect(waitForGeneratedImage(document, 1)).resolves.toEqual(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+  });
+
+  it("fails when image generation completes with text instead of an image", async (): Promise<void> => {
+    vi.useFakeTimers();
+    createPage('<model-response><div class="markdown">I encountered an error doing what you asked.</div></model-response>');
+    const result: Promise<Uint8Array> = waitForGeneratedImage(document, 0);
+    const expectation: Promise<void> = expect(result).rejects.toThrowError("image_generation_failed");
+    await vi.advanceTimersByTimeAsync(240_000);
+    await expectation;
+    vi.useRealTimers();
   });
 
   it("clicks the structural stop control", (): void => {
