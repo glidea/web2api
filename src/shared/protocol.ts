@@ -1,4 +1,4 @@
-export type Provider = "chatgpt" | "gemini";
+export type Provider = "chatgpt" | "gemini" | "grok";
 
 export type Capabilities = {
   models: string[];
@@ -112,6 +112,7 @@ export type ExtensionConfigureMessage = {
   type: "extension.configure";
   chatgpt_tabs: number;
   gemini_tabs: number;
+  grok_tabs: number;
 };
 
 export type DaemonToExtensionMessage = ExtensionConfigureMessage | HeartbeatMessage | JobStartMessage | JobCancelMessage;
@@ -137,6 +138,8 @@ export function providerFromModel(model: string): Provider | undefined {
       return "chatgpt";
     case "gemini":
       return "gemini";
+    case "grok":
+      return "grok";
     default:
       return undefined;
   }

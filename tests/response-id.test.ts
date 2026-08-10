@@ -10,6 +10,11 @@ describe("response id", (): void => {
     expect(decodeResponseId(id)).toEqual({ provider: "gemini", conversationId: "conversation_123", turnId: "turn-1" });
   });
 
+  it("round trips a Grok conversation id", (): void => {
+    const id: string = encodeResponseId("grok", "conversation-123", "turn-1");
+    expect(decodeResponseId(id)).toEqual({ provider: "grok", conversationId: "conversation-123", turnId: "turn-1" });
+  });
+
   it("rejects ids outside the web2api format", (): void => {
     expect((): void => { decodeResponseId("resp_invalid"); }).toThrow("Invalid response id");
   });

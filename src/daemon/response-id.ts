@@ -28,6 +28,7 @@ export function decodeResponseId(responseId: string): ResponseReference {
   switch (providerValue) {
     case "chatgpt":
     case "gemini":
+    case "grok":
       provider = providerValue;
       break;
     default:

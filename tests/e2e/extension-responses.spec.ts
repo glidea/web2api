@@ -84,6 +84,60 @@ document.querySelector('button[aria-label=Send]').addEventListener('click', () =
   }, 100);
 });
 </script></body></html>`;
+const grokFixture: string = `<!doctype html><html><head><title>Grok fixture</title></head><body>
+<button aria-label="Account menu"></button>
+<button id="model-select-trigger" aria-label="Model selector">Fast</button>
+<div role="menuitem"><span>Fast</span><span>Quick responses - Grok 4.5</span></div>
+<div role="menuitem"><span>Expert</span><span>Thinks hard - Grok 4.5</span></div>
+<input class="hidden" type="file" name="files" multiple>
+<div id="attachment-previews"></div>
+<textarea aria-label="Ask Grok anything"></textarea>
+<button type="submit" data-testid="chat-submit" aria-label="Submit"></button>
+<a href="/imagine">Imagine</a>
+<script>
+const uploadInput = document.querySelector('input[type=file]');
+uploadInput.addEventListener('change', () => {
+  const previews = document.querySelector('#attachment-previews');
+  for (const file of Array.from(uploadInput.files || [])) {
+    const preview = document.createElement('div');
+    preview.dataset.testid = 'attachment-preview';
+    preview.dataset.mediaType = file.type;
+    previews.append(preview);
+  }
+});
+document.querySelector('button[data-testid=chat-submit]').addEventListener('click', () => {
+  const composer = document.querySelector('textarea');
+  const prompt = composer.value;
+  const attachmentTypes = Array.from(uploadInput.files || []).map((file) => file.type);
+  const startingPath = location.pathname;
+  const currentConversation = startingPath.startsWith('/c/') ? startingPath.slice(3) : undefined;
+  const conversationId = currentConversation || (prompt === 'hello grok' ? 'grok-fixture-conversation' : 'grok-fresh-conversation');
+  history.pushState({}, '', '/c/' + conversationId);
+  setTimeout(() => {
+    const assistant = document.createElement('div');
+    assistant.dataset.testid = 'assistant-message';
+    if (prompt === 'generate grok fixture image') {
+      const image = document.createElement('img');
+      image.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+      assistant.append(image);
+    } else {
+      const message = document.createElement('div');
+      message.className = 'response-content-markdown';
+      if (prompt.includes('"tool_outputs":[{"call_id":"call_weather"')) {
+        message.textContent = 'Grok says 21 degrees.';
+      } else if (prompt.includes('WEB2API FUNCTION PROTOCOL V1')) {
+        message.textContent = 'WEB2API_FUNCTION_CALLS_V1\\n{"calls":[{"call_id":"call_weather","name":"get_weather","arguments":{"city":"Paris"}}]}\\nWEB2API_FUNCTION_CALLS_END';
+      } else if (prompt === 'describe grok attachments') {
+        message.textContent = attachmentTypes.join(',');
+      } else {
+        message.textContent = prompt === 'hello grok' ? 'hello from grok fixture' : startingPath;
+      }
+      assistant.append(message);
+    }
+    document.body.append(assistant);
+  }, 100);
+});
+</script></body></html>`;
 
 let daemon: DaemonProcess;
 let context: BrowserContext;
@@ -102,7 +156,7 @@ test.beforeAll(({}, testInfo): void => {
 async function startDaemon(): Promise<void> {
   configDirectory = await mkdtemp(join(tmpdir(), "web2api-responses-e2e-"));
   const configPath: string = join(configDirectory, "config.json");
-  await writeFile(configPath, `${JSON.stringify({ api_key: "wb2_responses_e2e", port, chatgpt_tabs: 2, gemini_tabs: 2 }, null, 2)}\n`);
+  await writeFile(configPath, `${JSON.stringify({ api_key: "wb2_responses_e2e", port, chatgpt_tabs: 2, gemini_tabs: 2, grok_tabs: 2 }, null, 2)}\n`);
   daemon = spawn("pnpm", ["exec", "tsx", "src/daemon/cli.ts", "start", "--config", configPath, "--port", String(port)], {
     cwd: process.cwd(),
     env: process.env,
@@ -150,6 +204,9 @@ test.beforeAll(async (): Promise<void> => {
   await context.route("https://gemini.google.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: geminiFixture });
   });
+  await context.route("https://grok.com/**", async (route): Promise<void> => {
+    await route.fulfill({ contentType: "text/html", body: grokFixture });
+  });
   await startDaemon();
 });
 
@@ -163,15 +220,15 @@ test.afterAll(async (): Promise<void> => {
 test("keeps ChatGPT Responses API behavior after introducing Provider routing", async (): Promise<void> => {
   const pageDeadline: number = Date.now() + 10_000;
   let workerPages: Page[] = [];
-  while (Date.now() < pageDeadline && workerPages.length < 4) {
-    workerPages = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/") || candidate.url().startsWith("https://gemini.google.com/"));
-    if (workerPages.length < 4) {
+  while (Date.now() < pageDeadline && workerPages.length < 6) {
+    workerPages = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/") || candidate.url().startsWith("https://gemini.google.com/") || candidate.url().startsWith("https://grok.com/"));
+    if (workerPages.length < 6) {
       await new Promise<void>((resolvePromise): void => {
         setTimeout(resolvePromise, 100);
       });
     }
   }
-  if (workerPages.length < 4) {
+  if (workerPages.length < 6) {
     throw new Error("worker tabs were not created");
   }
   for (const workerPage of workerPages) {
@@ -182,7 +239,7 @@ test("keeps ChatGPT Responses API behavior after introducing Provider routing", 
   while (Date.now() < deadline) {
     const healthResponse: Response = await fetch(`http://127.0.0.1:${port}/healthz`);
     const health: { extension_connected: boolean; workers_ready: number } = await healthResponse.json() as { extension_connected: boolean; workers_ready: number };
-    ready = health.extension_connected && health.workers_ready === 4;
+    ready = health.extension_connected && health.workers_ready === 6;
     if (ready) {
       break;
     }
@@ -423,4 +480,158 @@ test("round trips Gemini function calls and hides the private streaming protocol
   expect(streamBody).toContain("event: response.function_call_arguments.done");
   expect(streamBody).toContain('"name":"get_weather"');
   expect(streamBody).not.toContain("web2api_function_calls");
+});
+
+test("serves Grok dynamic models, reasoning, text, streaming and continuation in isolated workers", async (): Promise<void> => {
+  const otherProviderUrls: string[] = context.pages()
+    .filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/") || candidate.url().startsWith("https://gemini.google.com/"))
+    .map((candidate: Page): string => candidate.url());
+  const grokPages: Page[] = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://grok.com/"));
+  expect(grokPages).toHaveLength(2);
+  for (const grokPage of grokPages) {
+    await expect(grokPage.getByRole("button", { name: "Account menu" })).toHaveCount(1);
+  }
+
+  const modelsDeadline: number = Date.now() + 5_000;
+  let modelIds: string[] = [];
+  while (Date.now() < modelsDeadline) {
+    const modelsResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const modelsBody: { data: Array<{ id: string }> } = await modelsResponse.json() as { data: Array<{ id: string }> };
+    modelIds = modelsBody.data.map((model: { id: string }): string => model.id);
+    if (modelIds.includes("grok/4.5")) {
+      break;
+    }
+    await new Promise<void>((resolvePromise): void => {
+      setTimeout(resolvePromise, 100);
+    });
+  }
+  expect(modelIds).toContain("grok/default");
+  expect(modelIds).toContain("grok/4.5");
+
+  const modelResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "grok/4.5", input: "dynamic grok", reasoning: { effort: "expert" } })
+  });
+  expect(modelResponse.status).toBe(200);
+
+  const unsupportedReasoningResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "grok/default", input: "invalid reasoning", reasoning: { effort: "high" } })
+  });
+  expect(unsupportedReasoningResponse.status).toBe(400);
+  expect(await unsupportedReasoningResponse.json()).toMatchObject({ error: { code: "reasoning_effort_not_available" } });
+
+  const firstResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "grok/default", input: "hello grok" })
+  });
+  const firstContent: string = await firstResponse.text();
+  if (firstResponse.status !== 200) {
+    throw new Error(`Grok response failed: ${firstResponse.status} ${firstContent} pages=${pageErrors.join("|")} daemon=${daemonErrors}`);
+  }
+  const firstBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = JSON.parse(firstContent) as { id: string; output: Array<{ content: Array<{ text: string }> }> };
+  expect(firstBody.id).toMatch(/^resp_grok_grok-fixture-conversation_/);
+  expect(firstBody.output[0]?.content[0]?.text).toBe("hello from grok fixture");
+
+  const streamResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "grok/default", input: "stream grok", stream: true })
+  });
+  const streamBody: string = await streamResponse.text();
+  expect(streamResponse.status).toBe(200);
+  expect(streamResponse.headers.get("content-type")).toContain("text/event-stream");
+  expect(streamBody).toContain("event: response.output_text.delta");
+  expect(streamBody).toContain("event: response.completed");
+
+  const continuedResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "grok/default", input: "continue grok", previous_response_id: firstBody.id })
+  });
+  expect(continuedResponse.status).toBe(200);
+  const continuedBody: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await continuedResponse.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
+  expect(continuedBody.id).toMatch(/^resp_grok_grok-fixture-conversation_/);
+  expect(continuedBody.output[0]?.content[0]?.text).toBe("/c/grok-fixture-conversation");
+  expect(context.pages()
+    .filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/") || candidate.url().startsWith("https://gemini.google.com/"))
+    .map((candidate: Page): string => candidate.url())).toEqual(otherProviderUrls);
+});
+
+test("serves Grok image input and generated image responses", async (): Promise<void> => {
+  const inputResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "grok/default",
+      input: [
+        { type: "input_text", text: "describe grok attachments" },
+        { type: "input_image", image_url: "data:image/png;base64,AQID" },
+        { type: "input_image", image_url: "data:image/jpeg;base64,BAUG" }
+      ]
+    })
+  });
+  expect(inputResponse.status).toBe(200);
+  const inputBody: { output: Array<{ content?: Array<{ text: string }> }> } = await inputResponse.json() as { output: Array<{ content?: Array<{ text: string }> }> };
+  expect(inputBody.output[0]?.content?.[0]?.text).toBe("image/png,image/jpeg");
+
+  const generationResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "grok/default",
+      input: "generate grok fixture image",
+      tools: [{ type: "image_generation" }]
+    })
+  });
+  expect(generationResponse.status).toBe(200);
+  const generationBody: { output: Array<{ type: string; result?: string }> } = await generationResponse.json() as { output: Array<{ type: string; result?: string }> };
+  const imageResult: string | undefined = generationBody.output.find((item: { type: string }): boolean => item.type === "image_generation_call")?.result;
+  expect(Buffer.from(imageResult ?? "", "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+});
+
+test("round trips Grok function calls through the same conversation", async (): Promise<void> => {
+  const tools: Array<Record<string, unknown>> = [{
+    type: "function",
+    name: "get_weather",
+    description: "Get the current weather",
+    parameters: {
+      type: "object",
+      properties: { city: { type: "string" } },
+      required: ["city"],
+      additionalProperties: false
+    },
+    strict: true
+  }];
+  const callResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "grok/default", input: "Weather in Paris?", tools })
+  });
+  expect(callResponse.status).toBe(200);
+  const callBody: { id: string; output: Array<Record<string, unknown>> } = await callResponse.json() as { id: string; output: Array<Record<string, unknown>> };
+  expect(callBody.output).toMatchObject([{
+    type: "function_call",
+    status: "completed",
+    call_id: "call_weather",
+    name: "get_weather",
+    arguments: '{"city":"Paris"}'
+  }]);
+
+  const finalResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "grok/default",
+      previous_response_id: callBody.id,
+      input: [{ type: "function_call_output", call_id: "call_weather", output: '{"temperature":21}' }]
+    })
+  });
+  expect(finalResponse.status).toBe(200);
+  const finalBody: { id: string; output: Array<{ content?: Array<{ text: string }> }> } = await finalResponse.json() as { id: string; output: Array<{ content?: Array<{ text: string }> }> };
+  expect(finalBody.id.split("_").slice(0, 3)).toEqual(callBody.id.split("_").slice(0, 3));
+  expect(finalBody.output[0]?.content?.[0]?.text).toBe("Grok says 21 degrees.");
 });

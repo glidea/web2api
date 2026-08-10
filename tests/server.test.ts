@@ -13,10 +13,10 @@ afterEach(async (): Promise<void> => {
 });
 
 describe("daemon server", (): void => {
-  it("exposes both default providers without a dynamic model source", async (): Promise<void> => {
+  it("exposes every default provider without a dynamic model source", async (): Promise<void> => {
     const port: number = await getFreePort();
     daemon = new DaemonServer(
-      { api_key: "wb2_server_test", port, chatgpt_tabs: 2, gemini_tabs: 2 },
+      { api_key: "wb2_server_test", port, chatgpt_tabs: 2, gemini_tabs: 2, grok_tabs: 2 },
       { extensionConnected: false, workersReady: 0 }
     );
     await daemon.listen();
@@ -29,7 +29,8 @@ describe("daemon server", (): void => {
       object: "list",
       data: [
         { id: "chatgpt/default", object: "model", owned_by: "web2api" },
-        { id: "gemini/default", object: "model", owned_by: "web2api" }
+        { id: "gemini/default", object: "model", owned_by: "web2api" },
+        { id: "grok/default", object: "model", owned_by: "web2api" }
       ]
     });
   });

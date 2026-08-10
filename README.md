@@ -1,6 +1,6 @@
 # Web2API
 
-Expose logged-in ChatGPT and Gemini Chrome sessions through a local OpenAI Responses API.
+Expose logged-in ChatGPT, Gemini and Grok Chrome sessions through a local OpenAI Responses API.
 
 Supported response types include text, streaming text, image generation, image input, and emulated function calling.
 
@@ -10,7 +10,7 @@ Requirements:
 
 - Chrome
 - Node.js 22+
-- A logged-in ChatGPT or Gemini account
+- A logged-in ChatGPT, Gemini or Grok account
 
 The Chrome extension is not in the Chrome Web Store yet. Build and load it locally:
 
@@ -34,7 +34,7 @@ Pin Web2API and open its popup. Run the one-time command displayed there:
 npx -y glidea-web2api@latest install --extension-id <extension-id>
 ```
 
-Return to the popup and click **Check again**. Web2API starts the local companion and opens separate ChatGPT and Gemini worker pools. Log in to the provider pages you want to use.
+Return to the popup and click **Check again**. Web2API starts the local companion and opens separate ChatGPT, Gemini and Grok worker pools. Log in to the provider pages you want to use.
 
 The popup provides the Base URL, API key, daemon controls, independent provider status, and separate worker counts. Copy the API key and verify the complete path:
 
@@ -51,9 +51,9 @@ The response should contain `WEB2API_OK`. Configure other OpenAI-compatible clie
 
 - Base URL: `http://127.0.0.1:3210/v1`
 - API key: the value shown in the popup
-- Model: `chatgpt/default` or `gemini/default`
+- Model: `chatgpt/default`, `gemini/default` or `grok/default`
 
-Use `GET /v1/models` to discover account-visible provider models. Dynamic IDs keep their provider prefix, such as `gemini/3.1-pro`.
+Use `GET /v1/models` to discover account-visible provider models. Dynamic IDs keep their provider prefix, such as `gemini/3.1-pro` or `grok/4.5`.
 
 The companion does not store prompts, responses, images, cookies, or provider credentials. The selected provider must already be logged in to its worker pages.
 
@@ -97,12 +97,14 @@ pnpm test:smoke:chatgpt:setup
 pnpm test:smoke:chatgpt
 pnpm test:smoke:gemini:setup
 pnpm test:smoke:gemini
+pnpm test:smoke:grok:setup
+pnpm test:smoke:grok
 ```
 
-The ChatGPT profile is stored under `~/.web2api/chatgpt-profile`. Gemini setup opens system Google Chrome with `~/.web2api/gemini-profile`; close that window before running its smoke test. Neither flow copies browser cookies.
+The ChatGPT profile is stored under `~/.web2api/chatgpt-profile`. Gemini and Grok setup open system Google Chrome with dedicated profiles under `~/.web2api/gemini-profile` and `~/.web2api/grok-profile`; close the setup window before running its smoke test. None of these flows copy browser cookies.
 
 ## Documentation
 
 - [Technical design](docs/v001/tech-design.md)
-- [Implementation tasks](docs/v002/tasks.md)
+- [Implementation tasks](docs/v003/tasks.md)
 - [Local acceptance](docs/acceptance.md)

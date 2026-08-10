@@ -21,13 +21,14 @@ async function configPath(): Promise<string> {
 }
 
 describe("daemon config", (): void => {
-  it("creates separate default tab counts for ChatGPT and Gemini", async (): Promise<void> => {
+  it("creates separate default tab counts for every provider", async (): Promise<void> => {
     const path: string = await configPath();
 
     const config: DaemonConfig = await loadOrCreateConfig(path, {});
 
     expect(config.chatgpt_tabs).toBe(2);
     expect(config.gemini_tabs).toBe(2);
+    expect(config.grok_tabs).toBe(2);
   });
 
   it("rejects the removed shared max_tabs setting", async (): Promise<void> => {
@@ -40,9 +41,10 @@ describe("daemon config", (): void => {
   it("applies provider-specific tab overrides", async (): Promise<void> => {
     const path: string = await configPath();
 
-    const config: DaemonConfig = await loadOrCreateConfig(path, { chatGptTabs: 3, geminiTabs: 4 });
+    const config: DaemonConfig = await loadOrCreateConfig(path, { chatGptTabs: 3, geminiTabs: 4, grokTabs: 5 });
 
     expect(config.chatgpt_tabs).toBe(3);
     expect(config.gemini_tabs).toBe(4);
+    expect(config.grok_tabs).toBe(5);
   });
 });

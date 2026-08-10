@@ -70,7 +70,7 @@ describe("extension gateway", (): void => {
   beforeAll(async (): Promise<void> => {
     configDirectory = await mkdtemp(join(tmpdir(), "web2api-gateway-"));
     configPath = join(configDirectory, "config.json");
-    await writeFile(configPath, `${JSON.stringify({ api_key: "wb2_gateway", port, chatgpt_tabs: 2, gemini_tabs: 3, extension_id: extensionId }, null, 2)}\n`, "utf8");
+    await writeFile(configPath, `${JSON.stringify({ api_key: "wb2_gateway", port, chatgpt_tabs: 2, gemini_tabs: 3, grok_tabs: 4, extension_id: extensionId }, null, 2)}\n`, "utf8");
     await startDaemon();
   });
 
@@ -89,7 +89,7 @@ describe("extension gateway", (): void => {
       chrome_version: "151"
     };
     socket.send(JSON.stringify(hello));
-    expect(await readMessage(socket)).toEqual({ version: 1, type: "extension.configure", chatgpt_tabs: 2, gemini_tabs: 3 });
+    expect(await readMessage(socket)).toEqual({ version: 1, type: "extension.configure", chatgpt_tabs: 2, gemini_tabs: 3, grok_tabs: 4 });
 
     const ready: ExtensionToDaemonMessage = {
       version: 1,
@@ -164,6 +164,48 @@ describe("extension gateway", (): void => {
     const body: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await response.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
     expect(body.id).toMatch(/^resp_gemini_gemini-conversation_/);
     expect(body.output[0]?.content[0]?.text).toBe("hello from gemini");
+    socket.close();
+    await once(socket, "close");
+  });
+
+  it("routes a Grok model only to a Grok worker", async (): Promise<void> => {
+    const socket: WebSocket = new WebSocket(`ws://127.0.0.1:${port}/extension`, { origin: `chrome-extension://${extensionId}` });
+    await once(socket, "open");
+    socket.send(JSON.stringify({
+      version: 1,
+      type: "extension.hello",
+      extension_version: "0.1.0",
+      chrome_version: "151"
+    } satisfies ExtensionToDaemonMessage));
+    await readMessage(socket);
+    socket.send(JSON.stringify({
+      version: 1,
+      type: "worker.ready",
+      provider: "grok",
+      worker_id: "grok-worker-1",
+      capabilities: { models: ["grok/default", "grok/4.1"], reasoning_efforts: ["expert"] }
+    } satisfies ExtensionToDaemonMessage));
+    await waitForHealth(true, 1);
+
+    const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: "Bearer wb2_gateway", "content-type": "application/json" },
+      body: JSON.stringify({ model: "grok/4.1", input: "hello", reasoning: { effort: "expert" } })
+    });
+    const job: DaemonToExtensionMessage = await readMessage(socket);
+    expect(job).toMatchObject({ type: "job.start", provider: "grok", worker_id: "grok-worker-1", payload: { reasoning_effort: "expert" } });
+    if (job.type !== "job.start") {
+      throw new Error("expected job.start");
+    }
+    socket.send(JSON.stringify({ version: 1, type: "job.conversation_bound", request_id: job.request_id, worker_id: job.worker_id, conversation_id: "grok-conversation" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.output_text.delta", request_id: job.request_id, worker_id: job.worker_id, sequence: 0, delta: "hello from grok" } satisfies ExtensionToDaemonMessage));
+    socket.send(JSON.stringify({ version: 1, type: "job.completed", request_id: job.request_id, worker_id: job.worker_id } satisfies ExtensionToDaemonMessage));
+
+    const response: Response = await responsePromise;
+    expect(response.status).toBe(200);
+    const body: { id: string; output: Array<{ content: Array<{ text: string }> }> } = await response.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> };
+    expect(body.id).toMatch(/^resp_grok_grok-conversation_/);
+    expect(body.output[0]?.content[0]?.text).toBe("hello from grok");
     socket.close();
     await once(socket, "close");
   });

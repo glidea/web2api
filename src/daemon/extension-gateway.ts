@@ -68,7 +68,8 @@ export class ExtensionGateway {
     this.status = status;
     this.schedulers = {
       chatgpt: new ConversationScheduler(config.chatgpt_tabs),
-      gemini: new ConversationScheduler(config.gemini_tabs)
+      gemini: new ConversationScheduler(config.gemini_tabs),
+      grok: new ConversationScheduler(config.grok_tabs)
     };
     this.websocketServer = new WebSocketServer({ noServer: true });
     server.onUpgrade((request: IncomingMessage, socket: Duplex, head: Buffer): void => {
@@ -87,6 +88,7 @@ export class ExtensionGateway {
     this.connection?.close(1000, "daemon stopping");
     this.schedulers.chatgpt.close(new GatewayError("extension_unavailable", "Daemon stopping"));
     this.schedulers.gemini.close(new GatewayError("extension_unavailable", "Daemon stopping"));
+    this.schedulers.grok.close(new GatewayError("extension_unavailable", "Daemon stopping"));
     for (const pendingJob of this.pendingJobs.values()) {
       if (pendingJob.timeout !== undefined) {
         clearTimeout(pendingJob.timeout);
@@ -145,7 +147,7 @@ export class ExtensionGateway {
   }
 
   public models(): string[] {
-    const models: Set<string> = new Set<string>(["chatgpt/default", "gemini/default"]);
+    const models: Set<string> = new Set<string>(["chatgpt/default", "gemini/default", "grok/default"]);
     for (const worker of this.workers.values()) {
       for (const model of worker.capabilities.models) {
         models.add(model);
@@ -219,6 +221,7 @@ export class ExtensionGateway {
       }
       this.schedulers.chatgpt.close(new GatewayError("extension_unavailable", "Extension disconnected"));
       this.schedulers.gemini.close(new GatewayError("extension_unavailable", "Extension disconnected"));
+      this.schedulers.grok.close(new GatewayError("extension_unavailable", "Extension disconnected"));
       this.status.extensionConnected = false;
       this.status.workersReady = 0;
     });
@@ -239,7 +242,7 @@ export class ExtensionGateway {
     }
     switch (message.type) {
       case "extension.hello":
-        this.send(websocket, { version: 1, type: "extension.configure", chatgpt_tabs: this.config.chatgpt_tabs, gemini_tabs: this.config.gemini_tabs });
+        this.send(websocket, { version: 1, type: "extension.configure", chatgpt_tabs: this.config.chatgpt_tabs, gemini_tabs: this.config.gemini_tabs, grok_tabs: this.config.grok_tabs });
         return;
       case "heartbeat":
         this.lastHeartbeat = Date.now();

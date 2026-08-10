@@ -8,6 +8,7 @@ export type DaemonConfig = {
   port: number;
   chatgpt_tabs: number;
   gemini_tabs: number;
+  grok_tabs: number;
   extension_id?: string;
 };
 
@@ -15,6 +16,7 @@ export type ConfigOverrides = {
   port?: number;
   chatGptTabs?: number;
   geminiTabs?: number;
+  grokTabs?: number;
   extensionId?: string;
 };
 
@@ -50,7 +52,8 @@ export async function loadOrCreateConfig(path: string, overrides: ConfigOverride
       api_key: `wb2_${randomBytes(24).toString("base64url")}`,
       port: 3210,
       chatgpt_tabs: 2,
-      gemini_tabs: 2
+      gemini_tabs: 2,
+      grok_tabs: 2
     };
   }
 
@@ -62,6 +65,9 @@ export async function loadOrCreateConfig(path: string, overrides: ConfigOverride
   }
   if (overrides.geminiTabs !== undefined) {
     config.gemini_tabs = overrides.geminiTabs;
+  }
+  if (overrides.grokTabs !== undefined) {
+    config.grok_tabs = overrides.grokTabs;
   }
   if (overrides.extensionId !== undefined) {
     config.extension_id = overrides.extensionId;
@@ -79,7 +85,7 @@ function parseConfig(content: string): DaemonConfig {
     throw new Error("invalid daemon config");
   }
   const record: Record<string, unknown> = value as Record<string, unknown>;
-  if (typeof record["api_key"] !== "string" || typeof record["port"] !== "number" || typeof record["chatgpt_tabs"] !== "number" || typeof record["gemini_tabs"] !== "number") {
+  if (typeof record["api_key"] !== "string" || typeof record["port"] !== "number" || typeof record["chatgpt_tabs"] !== "number" || typeof record["gemini_tabs"] !== "number" || typeof record["grok_tabs"] !== "number") {
     throw new Error("invalid daemon config");
   }
   const extensionId: unknown = record["extension_id"];
@@ -91,6 +97,7 @@ function parseConfig(content: string): DaemonConfig {
     port: record["port"],
     chatgpt_tabs: record["chatgpt_tabs"],
     gemini_tabs: record["gemini_tabs"],
+    grok_tabs: record["grok_tabs"],
     ...(typeof extensionId === "string" ? { extension_id: extensionId } : {})
   };
 }

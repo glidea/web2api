@@ -78,7 +78,8 @@ describe("daemon CLI", (): void => {
       object: "list",
       data: [
         { id: "chatgpt/default", object: "model", owned_by: "web2api" },
-        { id: "gemini/default", object: "model", owned_by: "web2api" }
+        { id: "gemini/default", object: "model", owned_by: "web2api" },
+        { id: "grok/default", object: "model", owned_by: "web2api" }
       ]
     });
   });

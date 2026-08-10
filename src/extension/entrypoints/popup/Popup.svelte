@@ -7,6 +7,7 @@
   let status: PopupStatus | undefined = $state(undefined);
   let chatGptTabs: number = $state(2);
   let geminiTabs: number = $state(2);
+  let grokTabs: number = $state(2);
   let apiKeyVisible: boolean = $state(false);
   let busy: boolean = $state(false);
   let copiedField: "command" | "url" | "key" | undefined = $state(undefined);
@@ -30,6 +31,9 @@
     if (nextStatus.providers.gemini.tabs !== undefined) {
       geminiTabs = nextStatus.providers.gemini.tabs;
     }
+    if (nextStatus.providers.grok.tabs !== undefined) {
+      grokTabs = nextStatus.providers.grok.tabs;
+    }
   }
 
   async function runAction(request: PopupRequest): Promise<void> {
@@ -41,6 +45,9 @@
       }
       if (status.providers.gemini.tabs !== undefined) {
         geminiTabs = status.providers.gemini.tabs;
+      }
+      if (status.providers.grok.tabs !== undefined) {
+        grokTabs = status.providers.grok.tabs;
       }
     } finally {
       busy = false;
@@ -156,7 +163,16 @@
         </div>
         <div class="number-control">
           <input id="gemini-tabs" type="number" min="1" max="8" bind:value={geminiTabs} />
-          <button class="icon-button" title="Save and restart" aria-label="Save and restart" disabled={busy || chatGptTabs < 1 || chatGptTabs > 8 || geminiTabs < 1 || geminiTabs > 8} onclick={() => void runAction({ type: "web2api:popup", action: "configure", chatGptTabs, geminiTabs })}>
+        </div>
+      </div>
+      <div class="section-heading tabs-heading">
+        <div>
+          <label for="grok-tabs">Grok tabs</label>
+          <p>Worker: {status.providers.grok.workerReady ? "Ready" : "Unavailable"}</p>
+        </div>
+        <div class="number-control">
+          <input id="grok-tabs" type="number" min="1" max="8" bind:value={grokTabs} />
+          <button class="icon-button" title="Save and restart" aria-label="Save and restart" disabled={busy || chatGptTabs < 1 || chatGptTabs > 8 || geminiTabs < 1 || geminiTabs > 8 || grokTabs < 1 || grokTabs > 8} onclick={() => void runAction({ type: "web2api:popup", action: "configure", chatGptTabs, geminiTabs, grokTabs })}>
             <Save size={16} />
           </button>
         </div>
@@ -180,6 +196,14 @@
       <p>Worker {status.providers.gemini.workerReady ? "Ready" : "Unavailable"}</p>
       <p>Models {status.providers.gemini.models.length === 0 ? "Unavailable" : status.providers.gemini.models.join(", ")}</p>
       <p>Reasoning {status.providers.gemini.reasoningEfforts.length === 0 ? "Unavailable" : status.providers.gemini.reasoningEfforts.join(", ")}</p>
+    </section>
+    <section class="diagnostics" aria-label="Grok status">
+      <h2>Grok</h2>
+      <p>Session {status.providers.grok.loggedIn === undefined ? "Checking" : status.providers.grok.loggedIn ? "Logged in" : "Sign-in required"}</p>
+      <p>Content script {status.providers.grok.contentScriptReady ? "Ready" : "Unavailable"}</p>
+      <p>Worker {status.providers.grok.workerReady ? "Ready" : "Unavailable"}</p>
+      <p>Models {status.providers.grok.models.length === 0 ? "Unavailable" : status.providers.grok.models.join(", ")}</p>
+      <p>Reasoning {status.providers.grok.reasoningEfforts.length === 0 ? "Unavailable" : status.providers.grok.reasoningEfforts.join(", ")}</p>
     </section>
   {/if}
 </main>

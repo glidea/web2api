@@ -27,10 +27,12 @@ let daemonBaseUrl: string = "http://127.0.0.1:3210";
 let apiKey: string | undefined;
 let configuredChatGptTabs: number = 0;
 let configuredGeminiTabs: number = 0;
+let configuredGrokTabs: number = 0;
 let shouldReconnect: boolean = true;
 const providerUiStates: Record<Provider, ProviderUiState> = {
   chatgpt: { contentScriptReady: false, loggedIn: undefined, capabilities: { models: [], reasoning_efforts: [] } },
-  gemini: { contentScriptReady: false, loggedIn: undefined, capabilities: { models: [], reasoning_efforts: [] } }
+  gemini: { contentScriptReady: false, loggedIn: undefined, capabilities: { models: [], reasoning_efforts: [] } },
+  grok: { contentScriptReady: false, loggedIn: undefined, capabilities: { models: [], reasoning_efforts: [] } }
 };
 const workerTabs: Map<string, number> = new Map<string, number>();
 const readyWorkers: Set<string> = new Set<string>();
@@ -57,7 +59,10 @@ export default defineBackground((): void => {
       void ensureWorkerTabs(removedProvider, configuredTabCount(removedProvider));
     }
   });
-  browser.runtime.onMessage.addListener((message: unknown, sender): Promise<PopupStatus | undefined> => {
+  browser.runtime.onMessage.addListener((message: unknown, sender): Promise<PopupStatus | { data: string } | undefined> => {
+    if (isDownloadImageMessage(message)) {
+      return downloadImage(message.url);
+    }
     if (isJobEvent(message)) {
       sendToDaemon(message);
       return Promise.resolve(undefined);
@@ -71,6 +76,19 @@ export default defineBackground((): void => {
     return Promise.resolve(undefined);
   });
 });
+
+async function downloadImage(url: string): Promise<{ data: string }> {
+  const response: Response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("generated_image_download_failed");
+  }
+  const bytes: Uint8Array = new Uint8Array(await response.arrayBuffer());
+  let binary: string = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return { data: btoa(binary) };
+}
 
 async function initializeDaemon(): Promise<void> {
   try {
@@ -121,7 +139,7 @@ async function handlePopupRequest(request: PopupRequest): Promise<PopupStatus> {
     }
     case "configure": {
       shouldReconnect = true;
-      const response: NativeHostStatus = await sendNativeControl({ type: "configure", protocol_version: 1, chatgpt_tabs: request.chatGptTabs, gemini_tabs: request.geminiTabs });
+      const response: NativeHostStatus = await sendNativeControl({ type: "configure", protocol_version: 1, chatgpt_tabs: request.chatGptTabs, gemini_tabs: request.geminiTabs, grok_tabs: request.grokTabs });
       applyNativeStatus(response);
       disconnectFromDaemon();
       await connectToDaemon();
@@ -158,6 +176,7 @@ function applyNativeStatus(status: NativeHostStatus): void {
   apiKey = status.api_key;
   configuredChatGptTabs = status.chatgpt_tabs;
   configuredGeminiTabs = status.gemini_tabs;
+  configuredGrokTabs = status.grok_tabs;
 }
 
 function popupStatus(): PopupStatus {
@@ -170,7 +189,8 @@ function popupStatus(): PopupStatus {
     apiKey,
     providers: {
       chatgpt: providerPopupStatus("chatgpt", nativeHostInstalled ? configuredChatGptTabs : undefined),
-      gemini: providerPopupStatus("gemini", nativeHostInstalled ? configuredGeminiTabs : undefined)
+      gemini: providerPopupStatus("gemini", nativeHostInstalled ? configuredGeminiTabs : undefined),
+      grok: providerPopupStatus("grok", nativeHostInstalled ? configuredGrokTabs : undefined)
     },
     installCommand: `npx -y glidea-web2api@latest install --extension-id ${browser.runtime.id}`
   };
@@ -231,6 +251,7 @@ async function connectToDaemon(): Promise<void> {
       case "extension.configure":
         configuredChatGptTabs = message.chatgpt_tabs;
         configuredGeminiTabs = message.gemini_tabs;
+        configuredGrokTabs = message.grok_tabs;
         void synchronizeWorkerTabs();
         break;
       case "job.start":
@@ -341,6 +362,7 @@ function sameChatPage(currentUrl: string, targetUrl: string): boolean {
 async function synchronizeWorkerTabs(): Promise<void> {
   await ensureWorkerTabs("chatgpt", configuredChatGptTabs);
   await ensureWorkerTabs("gemini", configuredGeminiTabs);
+  await ensureWorkerTabs("grok", configuredGrokTabs);
 }
 
 async function ensureWorkerTabs(provider: Provider, tabCount: number): Promise<void> {
@@ -423,6 +445,9 @@ function providerFromWorkerId(workerId: string): Provider | undefined {
   if (workerId.startsWith("gemini-worker-")) {
     return "gemini";
   }
+  if (workerId.startsWith("grok-worker-")) {
+    return "grok";
+  }
   return undefined;
 }
 
@@ -437,6 +462,8 @@ function configuredTabCount(provider: Provider): number {
       return configuredChatGptTabs;
     case "gemini":
       return configuredGeminiTabs;
+    case "grok":
+      return configuredGrokTabs;
   }
 }
 
@@ -446,6 +473,8 @@ function providerHomeUrl(provider: Provider): string {
       return "https://chatgpt.com/";
     case "gemini":
       return "https://gemini.google.com/app";
+    case "grok":
+      return "https://grok.com/";
   }
 }
 
@@ -458,6 +487,8 @@ function conversationUrl(provider: Provider, conversationId: string | undefined)
       return `https://chatgpt.com/c/${encodeURIComponent(conversationId)}`;
     case "gemini":
       return `https://gemini.google.com/app/${encodeURIComponent(conversationId)}`;
+    case "grok":
+      return `https://grok.com/c/${encodeURIComponent(conversationId)}`;
   }
 }
 
@@ -482,9 +513,17 @@ function isContentReadyMessage(message: unknown): message is ContentReadyMessage
   }
   const value: Record<string, unknown> = message as Record<string, unknown>;
   return value["type"] === "web2api:content-ready"
-    && (value["provider"] === "chatgpt" || value["provider"] === "gemini")
+    && (value["provider"] === "chatgpt" || value["provider"] === "gemini" || value["provider"] === "grok")
     && typeof value["url"] === "string"
     && typeof value["loggedIn"] === "boolean";
+}
+
+function isDownloadImageMessage(message: unknown): message is { type: "web2api:download-image"; url: string } {
+  if (typeof message !== "object" || message === null) {
+    return false;
+  }
+  const value: Record<string, unknown> = message as Record<string, unknown>;
+  return value["type"] === "web2api:download-image" && typeof value["url"] === "string";
 }
 
 function isPopupRequest(message: unknown): message is PopupRequest {
@@ -502,7 +541,7 @@ function isPopupRequest(message: unknown): message is PopupRequest {
     case "restart":
       return true;
     case "configure":
-      return typeof value["chatGptTabs"] === "number" && typeof value["geminiTabs"] === "number";
+      return typeof value["chatGptTabs"] === "number" && typeof value["geminiTabs"] === "number" && typeof value["grokTabs"] === "number";
     default:
       return false;
   }

@@ -1,11 +1,12 @@
 {
   "name": "glidea-web2api",
   "version": "0.1.0",
-  "description": "Expose ChatGPT and Gemini web sessions as a local OpenAI-compatible Responses API.",
+  "description": "Expose ChatGPT, Gemini and Grok web sessions as a local OpenAI-compatible Responses API.",
   "type": "module",
   "keywords": [
     "chatgpt",
     "gemini",
+    "grok",
     "openai",
     "responses-api",
     "web2api"
@@ -39,6 +40,8 @@
     "test:smoke:chatgpt": "pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/chatgpt-smoke.spec.ts",
     "test:smoke:gemini:setup": "tsx scripts/setup-gemini-profile.ts",
     "test:smoke:gemini": "pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/gemini-smoke.spec.ts",
+    "test:smoke:grok:setup": "tsx scripts/setup-grok-profile.ts",
+    "test:smoke:grok": "pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/grok-smoke.spec.ts",
     "pack:extension": "pnpm build:extension && mkdir -p dist && rm -f dist/web2api-extension.zip && cd src/extension/.output && zip -qr ../../../dist/web2api-extension.zip chrome-mv3",
     "prepack": "pnpm build:daemon",
     "test": "vitest run --passWithNoTests",

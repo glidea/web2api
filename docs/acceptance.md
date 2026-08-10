@@ -33,11 +33,11 @@ node bin/glidea-web2api.mjs install --extension-id <popup 中的 extension-id>
 正常结果：
 
 - Companion 显示 Connected
-- 分别打开配置数量的 ChatGPT 和 Gemini worker 标签页
+- 分别打开配置数量的 ChatGPT、Gemini 和 Grok worker 标签页
 - popup 展示 Base URL 和 API key
 - 可以在 popup 启动、停止、重启 daemon
-- ChatGPT 与 Gemini 分别展示登录态、Content Script、worker 和动态模型
-- 修改任一 Provider 的标签页数量后保存，会重启 daemon 并独立调整两个 worker 池
+- ChatGPT、Gemini 与 Grok 分别展示登录态、Content Script、worker、动态模型和推理模式
+- 修改任一 Provider 的标签页数量后保存，会重启 daemon 并独立调整三个 worker 池
 
 如果 worker 页面未登录，直接在对应 Provider 页面登录。Web2API 不复制 Cookie，某个 Provider 未登录不会影响另一个 Provider。
 
@@ -65,14 +65,25 @@ curl http://127.0.0.1:3210/v1/responses \
   -d '{"model":"gemini/default","input":"Reply with exactly WEB2API_GEMINI_OK"}'
 ```
 
-验收标准：HTTP 200，最终文本为 `WEB2API_GEMINI_OK`。通过模型接口确认两个 Provider 的默认模型和当前账号可见的动态模型：
+验收标准：HTTP 200，最终文本为 `WEB2API_GEMINI_OK`。
+
+把模型改为 `grok/default` 再请求一次：
+
+```sh
+curl http://127.0.0.1:3210/v1/responses \
+  -H "Authorization: Bearer $WEB2API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"grok/default","input":"Reply with exactly WEB2API_GROK_OK"}'
+```
+
+验收标准：HTTP 200，最终文本为 `WEB2API_GROK_OK`。通过模型接口确认三个 Provider 的默认模型和当前账号可见的动态模型：
 
 ```sh
 curl http://127.0.0.1:3210/v1/models \
   -H "Authorization: Bearer $WEB2API_KEY"
 ```
 
-模型 ID 必须带 `chatgpt/` 或 `gemini/` 前缀。使用某个 Gemini 动态模型发起请求时，只能进入 Gemini worker。
+模型 ID 必须带 `chatgpt/`、`gemini/` 或 `grok/` 前缀。动态模型只能进入对应 Provider worker。
 
 ## 5. 验证函数调用
 
@@ -136,6 +147,22 @@ pnpm test:smoke:gemini
 Gemini smoke 必须通过本地 `/v1/responses` 直接验证文本、SSE 流式、多轮续接、动态模型切换、图片输入、图片生成和函数调用。测试日志与产物不得包含 Cookie、token、完整 prompt 或图片原始内容。
 
 Chrome 151 及以上版本先通过 CDP 卸载同路径的旧扩展实例，再通过 `Extensions.loadUnpacked` 加载当前构建。图片生成必须使用动态发现的非 Lite Flash 模型；工具不可用或生成失败时 smoke 直接失败，不允许跳过。
+
+真实 Grok 验收同样使用系统 Google Chrome 和独立 Profile：
+
+```sh
+pnpm test:smoke:grok:setup
+```
+
+在打开的 Grok 页面登录，确认页面不再显示登录按钮后关闭专用 Chrome。登录态保存在 `~/.web2api/grok-profile`。随后运行：
+
+```sh
+pnpm test:smoke:grok
+```
+
+Grok smoke 必须通过本地 `/v1/responses` 真实验证动态模型和推理模式发现、文本、SSE 流式、多轮续接、图片输入、函数调用，以及位于 `Imagine` 入口下的图片生成。扩展必须通过 CDP `Extensions.loadUnpacked` 加载。任何能力失败都直接失败，不允许跳过。
+
+如果真实账号在 Imagine 页面显示额度或升级限制，图片生成验收会按真实结果失败；这不是登录态问题，需要等待额度恢复或使用有 Imagine 权限的账号重跑。
 
 ## 7. 卸载本地 Companion
 

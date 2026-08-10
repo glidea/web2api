@@ -185,6 +185,7 @@ function parseDaemonOptions(argumentsList: string[]): CliOptions {
   let port: number | undefined;
   let chatGptTabs: number | undefined;
   let geminiTabs: number | undefined;
+  let grokTabs: number | undefined;
   for (let index: number = 0; index < argumentsList.length; index += 1) {
     const argument: string | undefined = argumentsList[index];
     switch (argument) {
@@ -204,11 +205,15 @@ function parseDaemonOptions(argumentsList: string[]): CliOptions {
         geminiTabs = Number(requireValue(argumentsList, index, argument));
         index += 1;
         break;
+      case "--grok-tabs":
+        grokTabs = Number(requireValue(argumentsList, index, argument));
+        index += 1;
+        break;
       default:
         throw new Error(`unknown option: ${argument}`);
     }
   }
-  return { configPath, overrides: { port, chatGptTabs, geminiTabs } };
+  return { configPath, overrides: { port, chatGptTabs, geminiTabs, grokTabs } };
 }
 
 function parseExtensionId(argumentsList: string[]): string {
@@ -240,7 +245,7 @@ function isNativeHostRequest(value: unknown): value is NativeHostRequest {
     case "stop":
       return true;
     case "configure":
-      return typeof record["chatgpt_tabs"] === "number" && typeof record["gemini_tabs"] === "number";
+      return typeof record["chatgpt_tabs"] === "number" && typeof record["gemini_tabs"] === "number" && typeof record["grok_tabs"] === "number";
     default:
       return false;
   }

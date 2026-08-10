@@ -12,6 +12,15 @@ const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture<
 <gem-menu-item role="menuitem" data-mode-id="flash"><span class="label">Flash</span></gem-menu-item>
 <div role="textbox" contenteditable="true"></div>
 </body></html>`;
+const grokFixture: string = `<!doctype html><html><head><title>Grok fixture</title></head><body>
+<button aria-label="Account menu"></button>
+<button id="model-select-trigger" aria-label="Model selector">Fast</button>
+<div role="menuitem"><span>Fast</span><span>Quick responses - Grok 4.5</span></div>
+<div role="menuitem"><span>Expert</span><span>Thinks hard - Grok 4.5</span></div>
+<textarea aria-label="Ask Grok anything"></textarea>
+<button type="submit" data-testid="chat-submit" aria-label="Submit"></button>
+<a href="/imagine">Imagine</a>
+</body></html>`;
 
 let context: BrowserContext;
 let userDataDirectory: string;
@@ -38,19 +47,20 @@ async function findExtensionId(browserContext: BrowserContext): Promise<string> 
   return url.hostname;
 }
 
-async function waitForProviderPageCounts(chatGptCount: number, geminiCount: number): Promise<void> {
+async function waitForProviderPageCounts(chatGptCount: number, geminiCount: number, grokCount: number): Promise<void> {
   const deadline: number = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const chatGptPages: Page[] = context.pages().filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/"));
     const geminiPages: Page[] = context.pages().filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/"));
-    if (chatGptPages.length === chatGptCount && geminiPages.length === geminiCount) {
+    const grokPages: Page[] = context.pages().filter((page: Page): boolean => page.url().startsWith("https://grok.com/"));
+    if (chatGptPages.length === chatGptCount && geminiPages.length === geminiCount && grokPages.length === grokCount) {
       return;
     }
     await new Promise<void>((resolvePromise): void => {
       setTimeout(resolvePromise, 100);
     });
   }
-  throw new Error(`expected ${chatGptCount} ChatGPT pages and ${geminiCount} Gemini pages`);
+  throw new Error(`expected ${chatGptCount} ChatGPT pages, ${geminiCount} Gemini pages and ${grokCount} Grok pages`);
 }
 
 test.beforeAll(async (): Promise<void> => {
@@ -78,6 +88,9 @@ test.beforeAll(async (): Promise<void> => {
   });
   await context.route("https://gemini.google.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: geminiFixture });
+  });
+  await context.route("https://grok.com/**", async (route): Promise<void> => {
+    await route.fulfill({ contentType: "text/html", body: grokFixture });
   });
   await context.route("https://example.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body>example</body></html>" });
@@ -110,6 +123,11 @@ test("injects provider content scripts only into supported pages", async (): Pro
   await expect(geminiPage.locator("html")).toHaveAttribute("data-web2api-content-script", "ready");
   await geminiPage.close();
 
+  const grokPage: Page = await context.newPage();
+  await grokPage.goto("https://grok.com/");
+  await expect(grokPage.locator("html")).toHaveAttribute("data-web2api-content-script", "ready");
+  await grokPage.close();
+
   const otherPage: Page = await context.newPage();
   await otherPage.goto("https://example.com/");
   await expect(otherPage.locator("html")).not.toHaveAttribute("data-web2api-content-script", "ready");
@@ -121,8 +139,8 @@ test("reports isolated provider status and saves separate worker counts", async 
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await expect(popup.getByRole("heading", { name: "Web2API" })).toBeVisible();
   await expect(popup.getByText("Connected", { exact: true })).toBeVisible({ timeout: 10_000 });
-  await waitForProviderPageCounts(2, 2);
-  for (const workerPage of context.pages().filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/") || page.url().startsWith("https://gemini.google.com/"))) {
+  await waitForProviderPageCounts(2, 2, 2);
+  for (const workerPage of context.pages().filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/") || page.url().startsWith("https://gemini.google.com/") || page.url().startsWith("https://grok.com/"))) {
     await workerPage.reload();
   }
   await expect(popup.getByRole("textbox", { name: "Base URL" })).toHaveValue("http://127.0.0.1:3210/v1");
@@ -136,14 +154,23 @@ test("reports isolated provider status and saves separate worker counts", async 
   await expect(geminiStatus.getByText("Content script Ready")).toBeVisible();
   await expect(geminiStatus.getByText("Worker Ready")).toBeVisible();
   await expect(geminiStatus.getByText("Models gemini/default")).toBeVisible();
+  const grokStatus = popup.getByRole("region", { name: "Grok status" });
+  await expect(grokStatus.getByText("Session Logged in")).toBeVisible();
+  await expect(grokStatus.getByText("Content script Ready")).toBeVisible();
+  await expect(grokStatus.getByText("Worker Ready")).toBeVisible();
+  await expect(grokStatus.getByText("Models grok/default, grok/4.5")).toBeVisible();
+  await expect(grokStatus.getByText("Reasoning fast, expert")).toBeVisible();
 
   await popup.getByLabel("ChatGPT tabs").fill("1");
   await popup.getByLabel("Gemini tabs").fill("3");
+  await popup.getByLabel("Grok tabs").fill("4");
   await popup.getByRole("button", { name: "Save and restart" }).click();
   await expect(popup.getByLabel("ChatGPT tabs")).toHaveValue("1", { timeout: 10_000 });
   await expect(popup.getByLabel("Gemini tabs")).toHaveValue("3");
-  await waitForProviderPageCounts(1, 3);
+  await expect(popup.getByLabel("Grok tabs")).toHaveValue("4");
+  await waitForProviderPageCounts(1, 3, 4);
   expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/"))).toHaveLength(1);
   expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/"))).toHaveLength(3);
+  expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://grok.com/"))).toHaveLength(4);
   await popup.close();
 });

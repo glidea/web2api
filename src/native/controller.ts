@@ -32,10 +32,10 @@ export async function handleNativeRequest(request: NativeHostRequest, dependenci
       return statusResponse(config, "stopped");
     }
     case "configure": {
-      if (!validTabCount(request.chatgpt_tabs) || !validTabCount(request.gemini_tabs)) {
+      if (!validTabCount(request.chatgpt_tabs) || !validTabCount(request.gemini_tabs) || !validTabCount(request.grok_tabs)) {
         return { ok: false, protocol_version: 1, code: "invalid_tab_count", message: "tab counts must be integers between 1 and 8" };
       }
-      const config: DaemonConfig = await dependencies.loadConfig({ chatGptTabs: request.chatgpt_tabs, geminiTabs: request.gemini_tabs });
+      const config: DaemonConfig = await dependencies.loadConfig({ chatGptTabs: request.chatgpt_tabs, geminiTabs: request.gemini_tabs, grokTabs: request.grok_tabs });
       if (await dependencies.isRunning(config)) {
         await dependencies.stop(config);
       }
@@ -57,6 +57,7 @@ function statusResponse(config: DaemonConfig, daemon: "running" | "stopped"): Na
     base_url: `http://127.0.0.1:${config.port}`,
     api_key: config.api_key,
     chatgpt_tabs: config.chatgpt_tabs,
-    gemini_tabs: config.gemini_tabs
+    gemini_tabs: config.gemini_tabs,
+    grok_tabs: config.grok_tabs
   };
 }

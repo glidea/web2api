@@ -7,16 +7,16 @@ import type { NativeHostResponse } from "../src/shared/native-protocol";
 
 function dependencies(running: boolean): { value: NativeControllerDependencies; events: string[] } {
   const events: string[] = [];
-  let config: DaemonConfig = { api_key: "wb2_test", port: 3210, chatgpt_tabs: 2, gemini_tabs: 3 };
+  let config: DaemonConfig = { api_key: "wb2_test", port: 3210, chatgpt_tabs: 2, gemini_tabs: 3, grok_tabs: 4 };
   return {
     events,
     value: {
       configPath: "/tmp/config.json",
       runtimePath: "/tmp/glidea-web2api.mjs",
       loadConfig: async (overrides?: ConfigOverrides): Promise<DaemonConfig> => {
-        if (overrides?.chatGptTabs !== undefined && overrides.geminiTabs !== undefined) {
-          config = { ...config, chatgpt_tabs: overrides.chatGptTabs, gemini_tabs: overrides.geminiTabs };
-          events.push(`configure:${overrides.chatGptTabs}:${overrides.geminiTabs}`);
+        if (overrides?.chatGptTabs !== undefined && overrides.geminiTabs !== undefined && overrides.grokTabs !== undefined) {
+          config = { ...config, chatgpt_tabs: overrides.chatGptTabs, gemini_tabs: overrides.geminiTabs, grok_tabs: overrides.grokTabs };
+          events.push(`configure:${overrides.chatGptTabs}:${overrides.geminiTabs}:${overrides.grokTabs}`);
         }
         return config;
       },
@@ -45,7 +45,8 @@ describe("native host controller", (): void => {
       base_url: "http://127.0.0.1:3210",
       api_key: "wb2_test",
       chatgpt_tabs: 2,
-      gemini_tabs: 3
+      gemini_tabs: 3,
+      grok_tabs: 4
     });
     expect(fixture.events).toEqual(["start"]);
 
@@ -55,12 +56,13 @@ describe("native host controller", (): void => {
 
   it("persists provider tab counts and restarts a running daemon", async (): Promise<void> => {
     const fixture: { value: NativeControllerDependencies; events: string[] } = dependencies(true);
-    const response: NativeHostResponse = await handleNativeRequest({ type: "configure", protocol_version: 1, chatgpt_tabs: 4, gemini_tabs: 5 }, fixture.value);
+    const response: NativeHostResponse = await handleNativeRequest({ type: "configure", protocol_version: 1, chatgpt_tabs: 4, gemini_tabs: 5, grok_tabs: 6 }, fixture.value);
 
     expect(response.ok).toBe(true);
     expect(response.ok && response.chatgpt_tabs).toBe(4);
     expect(response.ok && response.gemini_tabs).toBe(5);
-    expect(fixture.events).toEqual(["configure:4:5", "stop", "start"]);
+    expect(response.ok && response.grok_tabs).toBe(6);
+    expect(fixture.events).toEqual(["configure:4:5:6", "stop", "start"]);
   });
 
   it("stops a running daemon", async (): Promise<void> => {
@@ -74,7 +76,8 @@ describe("native host controller", (): void => {
       base_url: "http://127.0.0.1:3210",
       api_key: "wb2_test",
       chatgpt_tabs: 2,
-      gemini_tabs: 3
+      gemini_tabs: 3,
+      grok_tabs: 4
     });
     expect(fixture.events).toEqual(["stop"]);
   });

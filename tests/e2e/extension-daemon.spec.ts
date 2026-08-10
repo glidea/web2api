@@ -16,6 +16,13 @@ const geminiFixture: string = `<!doctype html><html><head><title>Gemini fixture<
 <gem-menu-item role="menuitem" data-mode-id="flash"><span class="label">Flash</span></gem-menu-item>
 <div role="textbox" contenteditable="true"></div>
 </body></html>`;
+const grokFixture: string = `<!doctype html><html><head><title>Grok fixture</title></head><body>
+<button aria-label="Account menu"></button>
+<button id="model-select-trigger">Fast</button>
+<div role="menuitem"><span>Fast</span><span>Quick responses - Grok 4.5</span></div>
+<textarea aria-label="Ask Grok anything"></textarea>
+<button type="submit" data-testid="chat-submit" aria-label="Submit"></button>
+</body></html>`;
 let context: BrowserContext;
 let userDataDirectory: string;
 let configDirectory: string;
@@ -58,7 +65,7 @@ async function waitForReady(): Promise<void> {
     const response: Response = await fetch(`http://127.0.0.1:${port}/healthz`);
     const body: { extension_connected: boolean; workers_ready: number } = await response.json() as { extension_connected: boolean; workers_ready: number };
     lastBody = body;
-    if (body.extension_connected && body.workers_ready === 4) {
+    if (body.extension_connected && body.workers_ready === 6) {
       return;
     }
     await new Promise<void>((resolvePromise): void => {
@@ -81,18 +88,21 @@ test.beforeAll(async (): Promise<void> => {
   await context.route("https://gemini.google.com/**", async (route): Promise<void> => {
     await route.fulfill({ contentType: "text/html", body: geminiFixture });
   });
+  await context.route("https://grok.com/**", async (route): Promise<void> => {
+    await route.fulfill({ contentType: "text/html", body: grokFixture });
+  });
   const deadline: number = Date.now() + 10_000;
   let providerPages: Page[] = [];
   while (Date.now() < deadline) {
-    providerPages = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/") || candidate.url().startsWith("https://gemini.google.com/"));
-    if (providerPages.length === 4) {
+    providerPages = context.pages().filter((candidate: Page): boolean => candidate.url().startsWith("https://chatgpt.com/") || candidate.url().startsWith("https://gemini.google.com/") || candidate.url().startsWith("https://grok.com/"));
+    if (providerPages.length === 6) {
       break;
     }
     await new Promise<void>((resolvePromise): void => {
       setTimeout(resolvePromise, 100);
     });
   }
-  expect(providerPages).toHaveLength(4);
+  expect(providerPages).toHaveLength(6);
   for (const providerPage of providerPages) {
     await providerPage.reload();
   }
@@ -105,16 +115,18 @@ test.afterAll(async (): Promise<void> => {
   await rm(configDirectory, { recursive: true, force: true });
 });
 
-test("connects isolated ChatGPT and Gemini workers to daemon health", async (): Promise<void> => {
+test("connects isolated ChatGPT, Gemini and Grok workers to daemon health", async (): Promise<void> => {
   await waitForReady();
   const workers: Worker[] = context.serviceWorkers();
   expect(workers.length).toBeGreaterThan(0);
   const pages: Page[] = context.pages();
   const chatGptPages: Page[] = pages.filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/"));
   const geminiPages: Page[] = pages.filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/"));
+  const grokPages: Page[] = pages.filter((page: Page): boolean => page.url().startsWith("https://grok.com/"));
   expect(chatGptPages).toHaveLength(2);
   expect(geminiPages).toHaveLength(2);
-  for (const workerPage of [...chatGptPages, ...geminiPages]) {
+  expect(grokPages).toHaveLength(2);
+  for (const workerPage of [...chatGptPages, ...geminiPages, ...grokPages]) {
     await expect(workerPage.locator("html")).toHaveAttribute("data-web2api-content-script", "ready");
   }
 
@@ -129,4 +141,5 @@ test("connects isolated ChatGPT and Gemini workers to daemon health", async (): 
   }
   expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://gemini.google.com/"))).toHaveLength(2);
   expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://chatgpt.com/")).map((page: Page): string => page.url())).toEqual(chatGptPageUrls);
+  expect(context.pages().filter((page: Page): boolean => page.url().startsWith("https://grok.com/"))).toHaveLength(2);
 });

@@ -117,7 +117,7 @@ describe("non-streaming responses", (): void => {
   it("exposes worker models and forwards reasoning effort", async (): Promise<void> => {
     const modelsResponse: Response = await fetch(`http://127.0.0.1:${port}/v1/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
     const models: { data: Array<{ id: string }> } = await modelsResponse.json() as { data: Array<{ id: string }> };
-    expect(models.data.map((model: { id: string }): string => model.id)).toEqual(["chatgpt/default", "gemini/default", "chatgpt/gpt-4o"]);
+    expect(models.data.map((model: { id: string }): string => model.id)).toEqual(["chatgpt/default", "gemini/default", "grok/default", "chatgpt/gpt-4o"]);
     const responsePromise: Promise<Response> = fetch(`http://127.0.0.1:${port}/v1/responses`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
