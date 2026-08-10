@@ -23,6 +23,7 @@
     "glidea-web2api": "bin/glidea-web2api.mjs"
   },
   "files": [
+    "README.zh-CN.md",
     "bin/glidea-web2api.mjs",
     "dist/glidea-web2api.cjs",
     "dist/extension"
