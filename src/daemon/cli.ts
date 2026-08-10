@@ -1,11 +1,11 @@
 import { closeSync, fchmodSync, openSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, join } from "node:path";
-import { loadOrCreateConfig, defaultConfigPath, type ConfigOverrides, type DaemonConfig } from "./config";
+import { loadOrCreateConfig, defaultConfigPath, defaultDataDirectory, type ConfigOverrides, type DaemonConfig } from "./config";
 import { DaemonServer, type DaemonStatus, type ModelList } from "./server";
 import { ExtensionGateway } from "./extension-gateway";
 import { ResponsesService } from "./responses";
-import { defaultNativeInstallOptions, inspectNativeHost, installNativeHost, uninstallNativeHost, type NativeInstallInspection, type NativeInstallOptions, type NativeInstallResult } from "../native/installer";
+import { defaultNativeInstallOptions, inspectNativeHost, installBundledExtension, installNativeHost, uninstallNativeHost, type NativeInstallInspection, type NativeInstallOptions, type NativeInstallResult } from "../native/installer";
 import { readNativeMessage, writeNativeMessage } from "../native/messaging";
 import { handleNativeRequest, type NativeControllerDependencies } from "../native/controller";
 import type { NativeHostRequest, NativeHostResponse } from "../shared/native-protocol";
@@ -26,6 +26,9 @@ async function main(): Promise<void> {
     case "install":
       await runInstall(argumentsList);
       return;
+    case "prepare-extension":
+      await runPrepareExtension(argumentsList);
+      return;
     case "uninstall":
       await runUninstall(argumentsList);
       return;
@@ -36,8 +39,17 @@ async function main(): Promise<void> {
       await runNativeHost();
       return;
     default:
-      throw new Error("usage: glidea-web2api <start|install|uninstall|doctor>");
+      throw new Error("usage: glidea-web2api <prepare-extension|start|install|uninstall|doctor>");
   }
+}
+
+async function runPrepareExtension(argumentsList: string[]): Promise<void> {
+  if (argumentsList.length !== 0) {
+    throw new Error("prepare-extension does not accept options");
+  }
+  const extensionPath: string = await installBundledExtension(runtimePath, defaultDataDirectory());
+  console.log(`Extension: ${extensionPath}`);
+  console.log("Open chrome://extensions, enable Developer mode, and load this directory.");
 }
 
 async function runDaemon(argumentsList: string[]): Promise<void> {

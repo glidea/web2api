@@ -24,7 +24,8 @@
   },
   "files": [
     "bin/glidea-web2api.mjs",
-    "dist/glidea-web2api.cjs"
+    "dist/glidea-web2api.cjs",
+    "dist/extension"
   ],
   "engines": {
     "node": ">=22"
@@ -33,6 +34,7 @@
     "build:daemon": "esbuild src/daemon/cli.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/glidea-web2api.cjs",
     "prepare:extension": "wxt prepare src/extension",
     "build:extension": "wxt build src/extension --mv3",
+    "stage:extension": "node -e \"const fs = require('node:fs'); fs.rmSync('dist/extension', { recursive: true, force: true }); fs.cpSync('src/extension/.output/chrome-mv3', 'dist/extension', { recursive: true });\"",
     "test:e2e:extension": "pnpm build:daemon && pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/extension.spec.ts",
     "test:e2e:extension-daemon": "pnpm build:extension && WEB2API_EXTENSION_DAEMON_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-daemon.spec.ts",
     "test:e2e:extension-responses": "pnpm build:extension && WEB2API_EXTENSION_RESPONSES_TEST=1 playwright test --config playwright.config.ts tests/e2e/extension-responses.spec.ts",
@@ -43,7 +45,7 @@
     "test:smoke:grok:setup": "tsx scripts/setup-grok-profile.ts",
     "test:smoke:grok": "pnpm build:extension && playwright test --config playwright.config.ts tests/e2e/grok-smoke.spec.ts",
     "pack:extension": "pnpm build:extension && mkdir -p dist && rm -f dist/web2api-extension.zip && cd src/extension/.output && zip -qr ../../../dist/web2api-extension.zip chrome-mv3",
-    "prepack": "pnpm build:daemon",
+    "prepack": "pnpm build:daemon && pnpm build:extension && pnpm stage:extension",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },

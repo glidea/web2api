@@ -1,6 +1,6 @@
-import { access, chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { defaultDataDirectory } from "../daemon/config";
@@ -32,6 +32,14 @@ type NativeHostManifest = {
   type: "stdio";
   allowed_origins: string[];
 };
+
+export async function installBundledExtension(runtimeSource: string, dataDirectory: string): Promise<string> {
+  const sourceDirectory: string = join(dirname(runtimeSource), "extension");
+  const targetDirectory: string = join(dataDirectory, "extension");
+  await rm(targetDirectory, { recursive: true, force: true });
+  await cp(sourceDirectory, targetDirectory, { recursive: true });
+  return targetDirectory;
+}
 
 export function defaultNativeInstallOptions(extensionId: string, runtimeSource: string): NativeInstallOptions {
   if (!/^[a-p]{32}$/.test(extensionId)) {
